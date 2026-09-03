@@ -121,6 +121,9 @@ services:
         condition: service_healthy
       kafka:
         condition: service_started
+    volumes:
+      - ./frontend:/app/frontend
+      - ./backend:/app/backend
 
   stream-ingestor:
     build:

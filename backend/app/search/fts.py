@@ -5,6 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.knowledge_chunk import KnowledgeChunk
 from app.core.logging import logger
 
+CONVERSATIONAL_STOP_WORDS = {
+    "what", "is", "the", "recent", "updates", "update", "occurred", "happened",
+    "on", "in", "and", "or", "a", "an", "tell", "me", "about", "latest", "status",
+    "trend", "trends", "regarding", "why", "who", "which", "where", "how", "changes",
+    "happening", "did", "do", "does", "any", "some"
+}
+
 
 class FullTextSearchService:
     """
@@ -23,21 +30,29 @@ class FullTextSearchService:
         if not cleaned_query:
             return []
 
+        # Extract core subject keywords by filtering out conversational question stop words
+        words = cleaned_query.split()
+        core_keywords = [w for w in words if w.lower() not in CONVERSATIONAL_STOP_WORDS]
+        effective_query = " ".join(core_keywords) if core_keywords else cleaned_query
+
         is_postgres = "postgresql" in str(session.bind.url) if session.bind else False
 
         if is_postgres:
             try:
-                # Format query tokens for plainto_tsquery or to_tsquery
+                # Format query tokens using websearch_to_tsquery or plainto_tsquery
+                ts_vector_expr = func.to_tsvector(
+                    "english",
+                    func.coalesce(KnowledgeChunk.article_title, "") + " " +
+                    KnowledgeChunk.title + " " +
+                    KnowledgeChunk.content
+                )
+                ts_query_expr = func.plainto_tsquery("english", effective_query)
+
                 fts_query = select(
                     KnowledgeChunk,
-                    func.ts_rank_cd(
-                        func.to_tsvector("english", KnowledgeChunk.title + " " + KnowledgeChunk.content),
-                        func.plainto_tsquery("english", cleaned_query)
-                    ).label("rank")
+                    func.ts_rank_cd(ts_vector_expr, ts_query_expr).label("rank")
                 ).where(
-                    func.to_tsvector("english", KnowledgeChunk.title + " " + KnowledgeChunk.content).op("@@")(
-                        func.plainto_tsquery("english", cleaned_query)
-                    )
+                    ts_vector_expr.op("@@")(ts_query_expr)
                 )
 
                 if article_id:
@@ -46,14 +61,16 @@ class FullTextSearchService:
                 fts_query = fts_query.order_by(text("rank DESC")).limit(top_k)
                 result = await session.execute(fts_query)
                 rows = result.all()
-                return [(row[0], float(row[1])) for row in rows]
+                if rows:
+                    return [(row[0], float(row[1])) for row in rows]
             except Exception as e:
                 logger.warning(f"Native PostgreSQL FTS error: {e}; falling back to token ILIKE query.")
 
-        # Fallback ILIKE / keyword matching
-        words = cleaned_query.lower().split()
+        # Fallback ILIKE / keyword matching with title matching priority
+        filter_words = core_keywords if core_keywords else words
         conditions = []
-        for word in words[:5]:
+        for word in filter_words[:5]:
+            conditions.append(KnowledgeChunk.article_title.ilike(f"%{word}%"))
             conditions.append(KnowledgeChunk.title.ilike(f"%{word}%"))
             conditions.append(KnowledgeChunk.content.ilike(f"%{word}%"))
 
@@ -63,15 +80,18 @@ class FullTextSearchService:
         if article_id:
             stmt = stmt.where(KnowledgeChunk.article_id == article_id)
 
-        stmt = stmt.order_by(KnowledgeChunk.occurred_at.desc()).limit(top_k * 2)
+        stmt = stmt.order_by(KnowledgeChunk.occurred_at.desc()).limit(top_k * 3)
         result = await session.execute(stmt)
         chunks = result.scalars().all()
 
         scored = []
         for chunk in chunks:
-            combined = (chunk.title + " " + chunk.content).lower()
-            match_count = sum(1 for w in words if w in combined)
-            score = match_count / max(1, len(words))
+            title_text = (chunk.article_title or chunk.title or "").lower()
+            combined = (title_text + " " + chunk.content).lower()
+            match_count = sum(1 for w in filter_words if w.lower() in combined)
+            # Extra weight if matched in article title
+            title_match = sum(2 for w in filter_words if w.lower() in title_text)
+            score = (match_count + title_match) / max(1, len(filter_words) * 2)
             scored.append((chunk, float(score)))
 
         scored.sort(key=lambda x: x[1], reverse=True)

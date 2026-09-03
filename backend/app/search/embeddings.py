@@ -1,3 +1,4 @@
+import hashlib
 import math
 import re
 from typing import List, Optional
@@ -9,7 +10,7 @@ from app.core.logging import logger
 class EmbeddingService:
     """
     Generates dense semantic vector embeddings (384 dimensions) for Wikipedia knowledge chunks.
-    Supports SentenceTransformers when available, Ollama embedding API, or fast dense deterministic vectorizer.
+    Supports SentenceTransformers when available, Ollama embedding API, or fast deterministic stable vectorizer.
     """
     def __init__(self, dimension: int = 384):
         self.dimension = dimension
@@ -53,7 +54,7 @@ class EmbeddingService:
     def _deterministic_dense_vector(self, text: str) -> List[float]:
         """
         Fast deterministic 384-dimensional dense normalized vector
-        based on token hashing and n-gram frequencies.
+        using stable MD5 token hashing (independent of Python process seeds).
         """
         vec = np.zeros(self.dimension, dtype=np.float32)
         clean = re.sub(r"[^\w\s]", " ", text.lower())
@@ -64,9 +65,10 @@ class EmbeddingService:
             return vec.tolist()
 
         for idx, token in enumerate(tokens):
-            h = hash(token) % self.dimension
-            h2 = (hash(token) * 31 + idx) % self.dimension
-            vec[h] += 1.0
+            digest = hashlib.md5(token.encode("utf-8")).hexdigest()
+            h1 = int(digest[:8], 16) % self.dimension
+            h2 = int(digest[8:16], 16) % self.dimension
+            vec[h1] += 1.0
             vec[h2] += 0.5
 
         norm = np.linalg.norm(vec)

@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-09-03T04:01:33.373051+00:00",
+  "platform": "win32",
+  "python_version": "3.11.5",
+  "metrics": {
+    "vector_indexing": {
+      "chunks_count": 100,
+      "total_ms": 64.62,
+      "throughput_chunks_per_sec": 1547.41
+    },
+    "retrieval_latencies_ms": {
+      "vector_only": {
+        "avg": 9.19,
+        "p95": 11.03,
+        "p99": 11.76
+      },
+      "fts_keyword_only": {
+        "avg": 2.29,
+        "p95": 3.77,
+        "p99": 4.25
+      },
+      "hybrid_rrf_search": {
+        "avg": 14.59,
+        "p95": 20.48,
+        "p99": 23.9
+      }
+    },
+    "worker_throughput": {
+      "events_processed": 50,
+      "total_ms": 35690.0,
+      "events_per_sec": 1.4
+    },
+    "llm_gateway": {
+      "provider": "mock",
+      "model": "mock",
+      "avg_ms": 0.22,
+      "min_ms": 0.0,
+      "max_ms": 0.55
+    }
+  }
+}

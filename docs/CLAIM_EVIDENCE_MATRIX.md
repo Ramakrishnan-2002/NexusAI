@@ -1,0 +1,31 @@
+# WikiPulse / NexusAI — Claim-Evidence Matrix
+
+This document provides a rigorous, item-by-item verification audit for every architectural, reliability, performance, and security claim across the WikiPulse documentation and codebase.
+
+---
+
+## 1. Master Claim-Evidence Matrix
+
+| Claim | Source Document | Evidence Type | Verified? | Exact Evidence | Qualification / Nuance |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Apache Kafka Append-Only Commit Log** | `docs/KAFKA_DEEP_DIVE.md` | DOCKER EXPERIMENT | **VERIFIED** | `docker compose exec kafka ... kafka-consumer-groups.sh` shows offsets advancing on disk per partition. | Single-broker deployment in Docker Compose (`replication_factor: 1`). |
+| **confluent-kafka (librdkafka) Client** | `docs/confluent-kafka-migration-report.md` | CODE & LOG | **VERIFIED** | `consumer.py` creates `confluent_kafka.Consumer`; logs show `rdkafka` client IDs and partition assignments. | C network operations run via `librdkafka`; Python callbacks/serialization run under GIL. |
+| **At-Least-Once Delivery Semantics** | `docs/SYSTEM_DESIGN_DEEP_DIVE.md` | CODE & TEST | **VERIFIED** | `enable.auto.commit = False`; `consumer.commit()` called manually after DB commit. | Relies on application idempotency to ignore replayed events upon worker crash. |
+| **Application Idempotency via ProcessingJob** | `workers/processor/processor.py` | UNIT & CONCURRENCY TEST | **VERIFIED** | `test_processor_concurrent_idempotency_race` (50 concurrent duplicates $\to$ exactly 1 DB record; 49 rolled back via `IntegrityError`). | PostgreSQL unique index on `idempotency_key = "proc:{event_id}"`. |
+| **Sub-Millisecond Redis Sliding Windows** | `backend/app/redis/counters.py` | BENCHMARK & TEST | **VERIFIED** | `test_spike_detector.py` and `benchmark_runner.py` show ZSET pruning in $< 0.5\text{ms}$. | Multi-command ZSET operations are individually atomic, not a single distributed ACID transaction. |
+| **PostgreSQL Full-Text Search (FTS) Latency**| `benchmarks/results.json` | BENCHMARK | **VERIFIED** | 100 iterations measured: Avg **1.93ms**, p95 **2.47ms**, p99 **3.02ms**. | Measured over benchmark dataset in SQLite/Postgres GIN inverted index. |
+| **pgvector Cosine Search Latency** | `benchmarks/results.json` | BENCHMARK | **VERIFIED** | 100 iterations measured: Avg **11.10ms**, p95 **18.77ms**, p99 **21.24ms**. | 384d vector cosine distance calculations with HNSW index. |
+| **Hybrid Search Latency (Vector + FTS + RRF)**| `benchmarks/results.json` | BENCHMARK | **VERIFIED** | 100 iterations measured: Avg **15.89ms**, p95 **21.86ms**, p99 **24.28ms**. | Dual retrieval execution + Reciprocal Rank Fusion ($k=60$) + candidate reranking. |
+| **Single-Worker Processor Throughput** | `benchmarks/results.json` | BENCHMARK | **VERIFIED** | 50 events processed in 4.23s $\to$ **11.81 events/sec**. | Includes full DB transaction, normalization, Redis ZSET update, and Kafka emission. |
+| **3-Worker Processor Throughput** | `benchmarks/results.json` | BENCHMARK | **PRELIMINARY BENCHMARK** | 150 events across 3 workers in 4.16s $\to$ **35–40 events/sec**. | Preliminary measurement on single-node machine; includes measurement variance. |
+| **Dense Vector Indexing Throughput** | `benchmarks/results.json` | BENCHMARK | **VERIFIED** | 100 chunks indexed in 76.2ms $\to$ **1,312.87 chunks/sec**. | Model loading time excluded; CPU-bound matrix multiplication. |
+| **LLM Gateway Mock Dispatch Latency** | `benchmarks/results.json` | BENCHMARK | **VERIFIED** | Avg **0.20ms**, Max **1.00ms**. | Mock schema validation overhead; not real external API inference. |
+| **Local Ollama Inference Latency** | `docs/PERFORMANCE_AND_SCALABILITY.md` | BENCHMARK | **VERIFIED** | **450–950ms** per structured analysis query on CPU. | Hardware-bound (llama3.2:1b on local CPU). |
+| **Google Gemini API Latency** | `docs/PHASE_3_TECHNICAL_REVIEW.md` | EXTERNAL DEPENDENCY | **NOT VERIFIED** | Requires live production API key and internet connectivity. | Clearly labeled as unmeasured in offline test environments. |
+| **Poison-Pill Isolation via DLQ** | `backend/tests/failure/test_failure_scenarios.py` | INTEGRATION TEST | **VERIFIED** | `test_failure_poison_pill_routed_to_dlq_without_blocking` routes corrupt event to `wikimedia.dlq` after 3 retries. | Application Data Failure, not Kafka broker failure. |
+| **Redis Outage Graceful Degradation** | `backend/tests/failure/test_failure_scenarios.py` | INTEGRATION TEST | **VERIFIED** | `test_failure_redis_outage_graceful_fallback` degrades to `InMemoryFallbackRedis` without throwing unhandled exceptions. | Volatile sliding window counters degrade to local process memory during outage. |
+| **Probe Separation (/livez vs /readyz)** | `backend/tests/api/test_api_endpoints.py` | INTEGRATION TEST | **VERIFIED** | `test_health_and_readiness_endpoints` confirms `/livez` stays 200 OK during DB failure; `/readyz` returns 503. | Follows Kubernetes container lifecycle best practices. |
+| **Prompt Injection Layered Defense** | `backend/tests/security/test_security_hardening.py` | UNIT TEST | **VERIFIED** | `sanitize_external_text()` neutralizes regex override patterns; context builder frames in `<untrusted_wikipedia_content>`. | Reduces prompt injection risk; does not guarantee 100% defense against unknown adversarial attacks. |
+| **Global Wikipedia Sizing (200+ ev/s)** | `docs/PERFORMANCE_AND_SCALABILITY.md` | THEORETICAL SIZING | **THEORETICAL** | Calculated: $W = \lceil 200 / 12.5 \rceil = 16\text{ workers}$, requiring 16 partitions. | Theoretical capacity estimate based on measured 11.81 ev/s per-worker throughput. |
+| **pgvector 10M Chunks Memory Sizing (32GB)** | `docs/PERFORMANCE_AND_SCALABILITY.md` | THEORETICAL SIZING | **THEORETICAL** | Calculated: $15\text{GB raw} + 4\text{GB HNSW} + 8\text{GB metadata} + \text{buffer} \approx 32\text{GB RAM}$. | Theoretical estimate; actual RAM depends on PostgreSQL `shared_buffers` and HNSW index parameters. |
+| **Multi-Pod SSE Redis Pub/Sub Fanout** | `docs/SYSTEM_DESIGN_DEEP_DIVE.md` | FUTURE PRODUCTION DESIGN | **FUTURE DESIGN** | Recommended architecture for multi-instance horizontal scaling behind a load balancer. | Single-node implementation uses in-process bounded `asyncio.Queue`. |

@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WikiPulse — Real-Time Knowledge Change Intelligence Platform</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        slate: {
+                            850: '#151f32',
+                            900: '#0f172a',
+                            950: '#020617',
+                        },
+                        brand: {
+                            50: '#eef2ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+    <!-- Top Navigation Bar -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-500/20">
+                    <i data-lucide="activity" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-lg font-bold tracking-tight text-white">WikiPulse</span>
+                        <span class="px-2 py-0.5 text-xs font-semibold bg-indigo-500/20 text-indigo-400 rounded-full border border-indigo-500/30">v1.0-prod</span>
+                    </div>
+                    <p class="text-xs text-slate-400">Real-Time Knowledge Change Intelligence Platform</p>
+                </div>
+            </div>
+
+            <!-- Tab Navigation -->
+            <nav class="flex space-x-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                <button onclick="switchTab('pulse')" id="tab-pulse" class="nav-tab active px-3.5 py-1.5 text-xs font-medium rounded-md transition flex items-center space-x-1.5 bg-indigo-600 text-white shadow-sm">
+                    <i data-lucide="radio" class="w-3.5 h-3.5"></i>
+                    <span>Live Pulse</span>
+                </button>
+                <button onclick="switchTab('trends')" id="tab-trends" class="nav-tab px-3.5 py-1.5 text-xs font-medium rounded-md transition flex items-center space-x-1.5 text-slate-400 hover:text-slate-200">
+                    <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                    <span>Activity Spikes</span>
+                </button>
+                <button onclick="switchTab('search')" id="tab-search" class="nav-tab px-3.5 py-1.5 text-xs font-medium rounded-md transition flex items-center space-x-1.5 text-slate-400 hover:text-slate-200">
+                    <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                    <span>RAG Intelligence</span>
+                </button>
+                <button onclick="switchTab('observability')" id="tab-observability" class="nav-tab px-3.5 py-1.5 text-xs font-medium rounded-md transition flex items-center space-x-1.5 text-slate-400 hover:text-slate-200">
+                    <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+                    <span>Observability</span>
+                </button>
+            </nav>
+
+            <!-- Stream Status Badge -->
+            <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-2 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="stream-status">Stream Active</span>
+                </div>
+                <a href="/docs" target="_blank" class="text-xs text-slate-400 hover:text-indigo-400 transition flex items-center space-x-1 border border-slate-800 px-2.5 py-1 rounded-md bg-slate-900">
+                    <i data-lucide="file-code-2" class="w-3.5 h-3.5"></i>
+                    <span>OpenAPI Docs</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        <!-- Live Telemetry KPI Bar -->
+        <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+            <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                <div class="text-xs font-medium text-slate-400">Events Processed</div>
+                <div class="text-2xl font-bold text-white mt-1" id="kpi-processed">0</div>
+                <div class="text-xs text-emerald-400 flex items-center mt-1">
+                    <i data-lucide="arrow-up-right" class="w-3 h-3 mr-0.5"></i>
+                    <span id="kpi-rate">0.0</span>/sec
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                <div class="text-xs font-medium text-slate-400">Active Spikes</div>
+                <div class="text-2xl font-bold text-amber-400 mt-1" id="kpi-spikes">0</div>
+                <div class="text-xs text-slate-500 mt-1">Threshold &ge; 3.0x</div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                <div class="text-xs font-medium text-slate-400">Redis Cache Hit</div>
+                <div class="text-2xl font-bold text-indigo-400 mt-1" id="kpi-cache-hit">100%</div>
+                <div class="text-xs text-slate-500 mt-1">Sliding Windows</div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                <div class="text-xs font-medium text-slate-400">API p95 Latency</div>
+                <div class="text-2xl font-bold text-emerald-400 mt-1" id="kpi-latency">0 ms</div>
+                <div class="text-xs text-slate-500 mt-1">Control Plane</div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                <div class="text-xs font-medium text-slate-400">LLM Fallbacks</div>
+                <div class="text-2xl font-bold text-slate-200 mt-1" id="kpi-fallbacks">0</div>
+                <div class="text-xs text-slate-500 mt-1">Gateway Routing</div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-sm">
+                <div class="text-xs font-medium text-slate-400">DLQ Errors</div>
+                <div class="text-2xl font-bold text-slate-300 mt-1" id="kpi-dlq">0</div>
+                <div class="text-xs text-emerald-500 mt-1">Fault Isolation</div>
+            </div>
+        </section>
+
+        <!-- VIEW 1: LIVE PULSE -->
+        <section id="view-pulse" class="view-panel space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Left: Live Recent Change Stream Feed -->
+                <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col h-[650px]">
+                    <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+                        <div class="flex items-center space-x-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-ping"></span>
+                            <h2 class="text-sm font-semibold text-white">Live Wikipedia Recent Change Stream</h2>
+                        </div>
+                        <span class="text-xs text-slate-400" id="live-stream-counter">Streaming...</span>
+                    </div>
+                    <div class="flex-1 overflow-y-auto divide-y divide-slate-800/60 font-mono text-xs" id="events-stream-list">
+                        <!-- Stream items populated via SSE -->
+                    </div>
+                </div>
+
+                <!-- Right: Hot Articles by Edit Velocity -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col h-[650px]">
+                    <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="flame" class="w-4 h-4 text-orange-400"></i>
+                            <h2 class="text-sm font-semibold text-white">Hot Articles (Redis Sliding Window)</h2>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-y-auto divide-y divide-slate-800/60 p-2" id="hot-articles-list">
+                        <!-- Hot articles -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- VIEW 2: ACTIVITY SPIKES & TRENDS -->
+        <section id="view-trends" class="view-panel hidden space-y-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-lg font-bold text-white">Detected Unusual Activity Spikes</h2>
+                    <p class="text-xs text-slate-400">Identified via multi-window velocity comparison &amp; baseline deviation scoring.</p>
+                </div>
+                <button onclick="loadTrends()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-medium rounded-lg text-slate-200 transition flex items-center space-x-1.5 border border-slate-700">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                    <span>Refresh Spikes</span>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="trends-cards-grid">
+                <!-- Spikes populated here -->
+            </div>
+        </section>
+
+        <!-- VIEW 3: RAG HYBRID SEARCH & QA -->
+        <section id="view-search" class="view-panel hidden space-y-6">
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm">
+                <h2 class="text-base font-bold text-white mb-2">Evidence-Backed Knowledge QA &amp; Hybrid Search</h2>
+                <p class="text-xs text-slate-400 mb-4">Query recent knowledge changes using natural language. Grounded in pgvector semantic retrieval and PostgreSQL full-text search with strict citation tracking.</p>
+
+                <form onsubmit="handleAskSubmit(event)" class="space-y-4">
+                    <div class="relative">
+                        <input type="text" id="rag-query-input" placeholder="e.g. What recent changes occurred around space exploration telemetry or quantum computing?" 
+                            class="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition shadow-inner">
+                        <button type="submit" id="btn-rag-submit" class="absolute right-2 top-2 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold rounded-md text-white transition flex items-center space-x-1.5 shadow">
+                            <i data-lucide="search" class="w-3.5 h-3.5"></i>
+                            <span>Ask WikiPulse</span>
+                        </button>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-4 text-xs text-slate-400">
+                        <div class="flex items-center space-x-2">
+                            <label>Provider:</label>
+                            <select id="rag-provider-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-300">
+                                <option value="">Auto Route (Router Policy)</option>
+                                <option value="gemini">Google Gemini</option>
+                                <option value="ollama">Local Ollama</option>
+                                <option value="mock">Deterministic Mock</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <label>Evidence Depth:</label>
+                            <select id="rag-topk-select" class="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-300">
+                                <option value="5">Top 5 Chunks</option>
+                                <option value="10">Top 10 Chunks</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- RAG Answer & Evidence Display -->
+            <div id="rag-response-container" class="hidden space-y-6">
+                <!-- Answer Card -->
+                <div class="bg-slate-900 border border-indigo-500/40 rounded-xl p-6 shadow-lg shadow-indigo-950/20">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+                        <div class="flex items-center space-x-2">
+                            <i data-lucide="bot" class="w-5 h-5 text-indigo-400"></i>
+                            <h3 class="text-sm font-bold text-white">AI Grounded Explanation</h3>
+                            <span id="rag-model-badge" class="px-2 py-0.5 text-xs bg-indigo-500/20 text-indigo-300 rounded border border-indigo-500/30">Gemini</span>
+                        </div>
+                        <div class="text-xs text-slate-400" id="rag-timing-badge">Retrieval: 12ms | LLM: 850ms</div>
+                    </div>
+
+                    <div class="text-slate-200 text-sm leading-relaxed mb-4" id="rag-answer-text"></div>
+
+                    <!-- Key Evidence Points -->
+                    <div class="bg-slate-950 border border-slate-800/80 rounded-lg p-3 mb-4">
+                        <div class="text-xs font-semibold text-slate-300 mb-2 flex items-center space-x-1.5">
+                            <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-400"></i>
+                            <span>Extracted Evidence Points:</span>
+                        </div>
+                        <ul class="list-disc list-inside text-xs text-slate-400 space-y-1" id="rag-evidence-points"></ul>
+                    </div>
+
+                    <!-- Verified Source Citations -->
+                    <div>
+                        <div class="text-xs font-semibold text-slate-300 mb-2 flex items-center space-x-1.5">
+                            <i data-lucide="bookmark" class="w-3.5 h-3.5 text-amber-400"></i>
+                            <span>Source Citations:</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3" id="rag-citations-grid"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- VIEW 4: OBSERVABILITY & PIPELINE TELEMETRY -->
+        <section id="view-observability" class="view-panel hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Component Health -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+                    <h3 class="text-sm font-bold text-white mb-4 flex items-center space-x-2">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                        <span>Infrastructure Components</span>
+                    </h3>
+                    <div class="space-y-3 text-xs" id="obs-components-list">
+                        <div class="flex items-center justify-between p-2 rounded bg-slate-950 border border-slate-800">
+                            <span>PostgreSQL + pgvector</span>
+                            <span class="text-emerald-400 font-semibold flex items-center"><i data-lucide="check" class="w-3 h-3 mr-1"></i> Connected</span>
+                        </div>
+                        <div class="flex items-center justify-between p-2 rounded bg-slate-950 border border-slate-800">
+                            <span>Redis Hot State Cache</span>
+                            <span class="text-emerald-400 font-semibold flex items-center"><i data-lucide="check" class="w-3 h-3 mr-1"></i> Connected</span>
+                        </div>
+                        <div class="flex items-center justify-between p-2 rounded bg-slate-950 border border-slate-800">
+                            <span>Apache Kafka Streaming</span>
+                            <span class="text-emerald-400 font-semibold flex items-center"><i data-lucide="check" class="w-3 h-3 mr-1"></i> Active</span>
+                        </div>
+                        <div class="flex items-center justify-between p-2 rounded bg-slate-950 border border-slate-800">
+                            <span>LLM Gateway &amp; Router</span>
+                            <span class="text-indigo-400 font-semibold flex items-center"><i data-lucide="check" class="w-3 h-3 mr-1"></i> Gemini / Ollama</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Kafka Architecture Breakdown -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+                    <h3 class="text-sm font-bold text-white mb-4 flex items-center space-x-2">
+                        <i data-lucide="layers" class="w-4 h-4 text-indigo-400"></i>
+                        <span>Kafka Event Pipeline</span>
+                    </h3>
+                    <div class="space-y-2 text-xs font-mono">
+                        <div class="p-2 rounded bg-slate-950 border border-slate-800 flex justify-between">
+                            <span class="text-indigo-400">wikimedia.recentchange</span>
+                            <span class="text-slate-400">Partition: Article</span>
+                        </div>
+                        <div class="p-2 rounded bg-slate-950 border border-slate-800 flex justify-between">
+                            <span class="text-emerald-400">wikimedia.article.processed</span>
+                            <span class="text-slate-400">Consumers: 2 groups</span>
+                        </div>
+                        <div class="p-2 rounded bg-slate-950 border border-slate-800 flex justify-between">
+                            <span class="text-amber-400">wikimedia.trend.detected</span>
+                            <span class="text-slate-400">Trigger: AI Worker</span>
+                        </div>
+                        <div class="p-2 rounded bg-slate-950 border border-slate-800 flex justify-between">
+                            <span class="text-red-400">wikimedia.dlq</span>
+                            <span class="text-slate-400">Max Retries: 3</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Architectural Rationale -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
+                    <h3 class="text-sm font-bold text-white mb-4 flex items-center space-x-2">
+                        <i data-lucide="code" class="w-4 h-4 text-indigo-400"></i>
+                        <span>System Design Guardrails</span>
+                    </h3>
+                    <ul class="space-y-2 text-xs text-slate-300">
+                        <li class="flex items-start space-x-1.5">
+                            <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5"></i>
+                            <span><b>Decoupled Ingestion:</b> Dedicated stream worker isolates SSE connection from FastAPI.</span>
+                        </li>
+                        <li class="flex items-start space-x-1.5">
+                            <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5"></i>
+                            <span><b>At-Least-Once + Idempotency:</b> De-duplication via unique <code class="text-indigo-300">ProcessingJob</code>.</span>
+                        </li>
+                        <li class="flex items-start space-x-1.5">
+                            <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5"></i>
+                            <span><b>RAG Evidence Grounding:</b> Strict prompt injection barriers &amp; verifiable citations.</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-900 bg-slate-950 py-4 text-center text-xs text-slate-500">
+        WikiPulse &mdash; Real-Time Knowledge Change Intelligence Platform &bull; Production Architecture
+    </footer>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>

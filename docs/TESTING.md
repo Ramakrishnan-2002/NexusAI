@@ -1,10 +1,10 @@
-# NexusAI / WikiPulse — Automated Testing Suite & Verification Matrix
+# WikiPulse / NexusAI — Automated Testing Suite & Verification Matrix
 
-This document details the automated test suite, classification of all 32 tests, execution instructions, and test evidence.
+This document details the automated test suite, testing pyramid, classification of all 32 tests, execution instructions, and test evidence for WikiPulse.
 
 ---
 
-## 1. Latest Regression Test Execution
+## 1. Regression Test Execution Summary
 
 ```bash
 .\venv\Scripts\pytest backend\tests -v
@@ -48,15 +48,37 @@ backend/tests/unit/test_schemas.py::test_ai_structured_output_validation PASSED 
 backend/tests/unit/test_spike_detector.py::test_baseline_activity_scoring PASSED [ 96%]
 backend/tests/unit/test_spike_detector.py::test_unusual_activity_spike_detection PASSED [100%]
 
-======================= 31 passed, 1 skipped in 28.37s ========================
+======================= 31 passed, 1 skipped in 28.71s ========================
 ```
+
+> **Official Test Result:** 31 tests passed and 1 test was skipped; all executed tests passed.
+> *(The skipped test `test_confluent_kafka_real_broker_live_connectivity` verifies live Kafka broker connectivity inside Docker containers and skips gracefully when executed directly on a Windows host without local broker bindings).*
 
 ---
 
-## 2. Test Classification & Scope
+## 2. Test Classification & Scope (32 Tests Collected)
 
-- **Total Collected:** 32 tests (31 passed, 1 skipped).
-- **Unit Tests (15 tests):** Math, schemas, sanitization regex, reranker, retry policy.
-- **Integration Tests (13 tests):** AsyncSession, concurrency race tests, DLQ, rate limiting, and in-memory event bus.
-- **End-to-End Tests (2 tests):** `test_end_to_end_knowledge_pipeline`, `test_rag_ai_ask_api`.
-- **Live/Skip Integration (1 test):** `test_confluent_kafka_real_broker_live_connectivity` (verifies live Kafka broker connectivity against Docker; skips gracefully when run directly on Windows host).
+### 2.1 Unit Tests (15 Tests)
+- `test_raw_wikimedia_event_validation`, `test_ingested_event_normalization`, `test_ai_structured_output_validation`: Validate Pydantic schema parsing.
+- `test_rrf_scoring_formula`, `test_reranker_deduplication`, `test_candidate_reranking_phrase_match`: Validate rank fusion math and phrase matching.
+- `test_sanitize_prompt_injection_patterns`, `test_sanitize_length_truncation`: Validate regex neutralization of adversarial instructions.
+- `test_baseline_activity_scoring`, `test_unusual_activity_spike_detection`: Validate rolling velocity multiplier algorithms.
+- `test_retry_policy_transient_failure_then_success`, `test_retry_policy_exhaustion_routes_to_dlq`: Validate exponential backoff and DLQ dispatch.
+- `test_llm_gateway_mock_provider`, `test_llm_gateway_cascading_fallback`: Validate provider routing.
+
+### 2.2 Integration Tests (13 Tests)
+- `test_health_and_readiness_endpoints`: Validates `/livez` vs `/readyz` probe isolation during database outages.
+- `test_articles_and_events_api`, `test_trends_and_analysis_api`: Validate REST repository query pipelines.
+- `test_processor_idempotency_duplicate_events`: Validates idempotent skip on duplicate event processing.
+- `test_processor_concurrent_idempotency_race`: Validates 50 concurrent duplicate worker tasks (1 write succeeds, 49 roll back via `IntegrityError`).
+- `test_confluent_kafka_producer_fallback_mode`, `test_confluent_kafka_consumer_fallback_mode`, `test_confluent_kafka_admin_service_instantiation`: Validate `confluent-kafka` client lifecycle.
+- `test_hybrid_search_scoring_and_retrieval`: Validates dual pgvector + FTS query execution.
+- `test_security_prompt_injection_neutralization`, `test_security_rag_untrusted_data_barrier`, `test_security_rate_limiter_throttling`: Validate security barriers.
+
+### 2.3 Failure & Chaos Tests (3 Tests)
+- `test_failure_redis_outage_graceful_fallback`: Injects Redis disconnect; verifies in-memory fallback degradation.
+- `test_failure_poison_pill_routed_to_dlq_without_blocking`: Injects malformed payload; verifies partition progression.
+- `test_failure_llm_provider_timeout_cascading`: Injects provider timeout; verifies automatic fallback.
+
+### 2.4 End-to-End Pipeline Tests (1 Test)
+- `test_end_to_end_knowledge_pipeline`: Validates ingestion $\to$ processing $\to$ indexing $\to$ hybrid search.

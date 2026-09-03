@@ -1,108 +1,62 @@
-# WikiPulse — Kafka & Confluent Client Architecture Deep Dive
+# WikiPulse / NexusAI — Apache Kafka & confluent-kafka Architecture
 
-This document provides a comprehensive technical breakdown of Apache Kafka and the `confluent-kafka` (librdkafka) client integration in WikiPulse.
-
----
-
-## 1. Why Confluent Kafka & librdkafka?
-
-### 1.1 Pure Python Asyncio (`aiokafka`) vs Native C Engine (`confluent-kafka`)
-In high-throughput event processing, pure-Python Kafka clients suffer from interpreter limitations:
-1. **Python GIL Overhead:** Constructing record batches, computing CRCs, and managing socket buffers in pure Python consumes valuable CPU cycles on the event loop.
-2. **Socket Lifecycle Binding:** Pure-Python async sockets can break across separate event loop lifecycles (e.g. during test isolation or worker rebalance).
-3. **librdkafka Architecture:** `librdkafka` is written in optimized C. It maintains dedicated background OS threads for socket I/O, network multiplexing, and compression, exposing a clean, high-performance interface to Python.
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                       PYTHON RUNTIME                        │
-│                                                             │
-│   FastAPI / Worker Coroutine                                │
-│       │                                                     │
-│       ├──► producer.produce()   [Enqueues to C Queue in ~1µs]
-│       │                                                     │
-│       └──► producer.poll(0)     [Dispatches callbacks]      │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ C-Extension FFI Boundary
-┌──────────────────────▼──────────────────────────────────────┐
-│                    LIBRDKAFKA (C ENGINE)                    │
-│                                                             │
-│   • Background Network Thread Pool                          │
-│   • Micro-Batch Assembly (linger.ms = 5ms)                  │
-│   • Direct TCP Socket Buffer Management                     │
-│   • Automatic Reconnection & Broker Discovery               │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ TCP Wire Protocol
-┌──────────────────────▼──────────────────────────────────────┐
-│                    APACHE KAFKA BROKER                      │
-└─────────────────────────────────────────────────────────────┘
-```
+This document provides a deep dive into the Apache Kafka streaming architecture, `confluent-kafka` (librdkafka) client integration, partition strategies, and failure behaviors in WikiPulse.
 
 ---
 
-## 2. Producer Architecture & Delivery Callbacks
+## 1. Topic Topology & Event Routing
 
-### 2.1 Non-Blocking Producer Execution
-In [`backend/app/kafka/producer.py`](file:///d:/NexusAI/backend/app/kafka/producer.py), messages are enqueued directly into librdkafka's internal C-memory queue:
+| Topic Name | Partitions | Key Strategy | Emitted By | Consumed By |
+| :--- | :---: | :--- | :--- | :--- |
+| `wikimedia.recentchange` | 3 | `article_title` | `stream-ingestor` | `processor-worker`, `analytics-worker` |
+| `wikimedia.article.processed` | 3 | `article_title` | `processor-worker` | `embedding-worker` |
+| `wikimedia.trend.detected` | 3 | `article_title` | `analytics-worker` | `ai-worker` |
+| `wikimedia.embedding.created`| 3 | `article_title` | `embedding-worker` | Downstream indexing listeners |
+| `wikimedia.dlq` | 1 | `event_id` | `RetryPolicy` / `DLQHandler` | Ops / Dead Letter Consumer |
+
+### Partition Key Total Ordering Guarantee
+Keying by `article_title` guarantees that all edit revisions for a specific Wikipedia article land on the same Kafka partition, ensuring strict chronological per-article processing order without cross-thread race conditions.
+
+---
+
+## 2. The `confluent-kafka` (librdkafka) Asyncio Bridge
+
+`confluent-kafka` is backed by the native C `librdkafka` engine. Because it is a synchronous C-extension, WikiPulse implements a non-blocking bridge to Python's single-threaded `asyncio` event loop:
+
+### 2.1 Producer Bridge (Non-Blocking C Enqueue)
 ```python
+# backend/app/kafka/producer.py
 self._producer.produce(
     topic=topic,
-    value=val_bytes,
-    key=key_bytes,
+    key=key.encode("utf-8") if key else None,
+    value=value_json.encode("utf-8"),
     on_delivery=self._delivery_report,
 )
-self._producer.poll(0)
+self._producer.poll(0)  # Dispatches completed delivery callbacks
 ```
-- **`produce()`** returns immediately without network I/O blocking.
-- **`poll(0)`** serves pending delivery callbacks on loop ticks.
-- **`flush()`** is executed asynchronously during graceful shutdown via `await asyncio.to_thread(self._producer.flush, timeout=3.0)`.
+- `produce()` appends messages directly to librdkafka's C-memory buffer in ~1µs without socket blocking.
+- `linger.ms: 5` enables micro-batching in C memory without latency penalty.
 
-### 2.2 Producer Configuration
-- `acks: "1"` — Leader broker commits to disk before acknowledging write.
-- `retries: 3` with `retry.backoff.ms: 500` — Absorbs transient broker blips.
-- `linger.ms: 5` — Waits up to $5\text{ms}$ to accumulate batches of messages, maximizing TCP packet payload efficiency.
-
----
-
-## 3. Consumer Architecture & Offset Semantics
-
-### 3.1 Non-Blocking Worker Thread Polling
-To prevent synchronous C network polling from freezing the worker's asyncio event loop, polling is executed in a dedicated worker thread pool:
+### 2.2 Consumer Bridge (Thread-Isolated Polling)
 ```python
 # backend/app/kafka/consumer.py
 msg = await asyncio.to_thread(self._consumer.poll, 1.0)
 ```
-This design allows worker coroutines to perform async PostgreSQL queries and Redis updates without thread starvation.
-
-### 3.2 Manual Offset Commits for At-Least-Once Guarantees
-- `enable.auto.commit = False` is explicitly configured.
-- Offsets are committed via `await asyncio.to_thread(self._consumer.commit, msg, asynchronous=False)` only AFTER:
-  1. The event passes Pydantic schema validation.
-  2. The entity is committed to PostgreSQL in an ACID transaction.
-  3. The Redis sliding window counters are updated.
-
-If a worker container crashes during processing, the uncommitted message is redelivered to a surviving worker replica upon consumer group rebalance.
+- Delegating `consumer.poll()` to `asyncio.to_thread` releases the Python GIL during the 1.0s network wait.
+- The Python asyncio event loop continues serving incoming FastAPI HTTP requests and worker coroutines uninterrupted.
 
 ---
 
-## 4. Consumer Group Rebalancing & Scaling
+## 3. Offset Commit Ordering & Delivery Semantics
 
-### 4.1 Rebalance Protocol & Partition Assignment
-When scaling worker replicas from 1 to 3 (`docker compose up -d --scale processor-worker=3`):
-1. New consumer instances send `JoinGroup` requests to the Kafka Group Coordinator.
-2. Kafka initiates a group rebalance and triggers `on_revoke` on existing consumers.
-3. The coordinator assigns partitions evenly across all healthy replicas:
-   - **Worker 1:** Partition 0
-   - **Worker 2:** Partition 1
-   - **Worker 3:** Partition 2
-4. `on_assign` callback logs the newly assigned partition set and consumption resumes.
+WikiPulse enforces **strict at-least-once delivery**:
+1. `enable.auto.commit = False` is configured on all consumers.
+2. The consumer polls an event from Kafka.
+3. The processor worker executes the PostgreSQL transaction and commits to disk.
+4. The Redis sliding-window counter is updated.
+5. The consumer explicitly commits the offset via `await asyncio.to_thread(self._consumer.commit, msg, asynchronous=False)`.
 
----
-
-## 5. Kafka vs. Alternative Streaming Technologies
-
-| Criteria | Apache Kafka (confluent-kafka) | RabbitMQ | Redis Streams |
-| :--- | :--- | :--- | :--- |
-| **Storage Architecture** | Append-only disk commit log | RAM-heavy queue with message deletion on ACK | In-memory log with configurable trimming |
-| **Ordering Guarantee** | Strict total order **per partition key** (`article_title`) | FIFO per queue, but concurrency disrupts order | In-order per stream key |
-| **Replayability** | **Unlimited** (re-read from offset 0 to replay history) | Non-replayable (consumed messages are removed) | Replayable within trimmed memory window |
-| **Backpressure Handling** | Consumers pull at their own rate; disk absorbs bursts | Broker memory limits can cause publisher blocking | Memory ceiling (OOM risk under huge backlogs) |
+```text
+Kafka Message ──► Schema Validation ──► PostgreSQL Commit ──► Redis Update ──► Kafka Offset Commit
+```
+If a worker container crashes before Step 5, Kafka reassigns the uncommitted offset to a surviving replica during consumer group rebalance. The surviving worker skips database insertion via PostgreSQL `idempotency_key` deduplication and advances the Kafka offset.

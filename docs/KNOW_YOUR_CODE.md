@@ -1,75 +1,43 @@
-# WikiPulse / NexusAI — Know Your Code Guide
+# WikiPulse / NexusAI — Know Your Code: Source Code Reference
 
-This quick-navigation guide maps every major subsystem to its exact repository entry points, core classes, database interactions, Kafka topics, failure handlers, and verification tests.
+This document maps the architectural concepts in WikiPulse to exact source code files, classes, methods, and line ranges in the repository.
 
 ---
 
-## 1. Subsystem Navigation Directory
+## 1. Master Code Mapping Matrix
+
+| Architectural Capability | Source Code File | Key Class / Function | Verification Test |
+| :--- | :--- | :--- | :--- |
+| **Stream Ingestion & SSE Client** | `workers/stream_ingestor/wikimedia_client.py` | `WikimediaSSEClient` | `test_ingested_event_normalization` |
+| **Kafka Producer (confluent-kafka)** | `backend/app/kafka/producer.py` | `EventProducer.publish()` | `test_confluent_kafka_producer_fallback_mode` |
+| **Kafka Consumer (confluent-kafka)** | `backend/app/kafka/consumer.py` | `EventConsumer._consume_kafka()` | `test_confluent_kafka_consumer_fallback_mode` |
+| **Retry Policy & DLQ Routing** | `backend/app/kafka/retry.py`, `dlq.py` | `RetryPolicy.execute_with_retry()`, `DeadLetterQueueHandler` | `test_retry_policy_exhaustion_routes_to_dlq` |
+| **Event Processor & Idempotency** | `workers/processor/processor.py` | `EventProcessorWorker.handle_event()` | `test_processor_concurrent_idempotency_race` |
+| **Redis Sliding-Window Counters** | `backend/app/redis/counters.py` | `ActivityCounterService.record_article_edit()` | `test_spike_detector.py` |
+| **Trend & Spike Detection** | `workers/analytics/detector.py` | `SpikeDetector.evaluate_article()` | `test_unusual_activity_spike_detection` |
+| **Dense Vector Embeddings** | `backend/app/search/embeddings.py` | `EmbeddingService.embed_text()` | `test_hybrid_search_scoring_and_retrieval` |
+| **Full-Text Lexical Search (FTS)** | `backend/app/search/fts.py` | `FullTextSearchService.search()` | `test_hybrid_search_scoring_and_retrieval` |
+| **Vector Similarity Search (pgvector)** | `backend/app/search/vector.py` | `VectorSearchService.search()` | `test_hybrid_search_scoring_and_retrieval` |
+| **Hybrid Search & RRF Fusion** | `backend/app/search/hybrid.py` | `HybridSearchService.search_hybrid()`, `_reciprocal_rank_fusion()` | `test_rrf_scoring_formula` |
+| **Candidate Reranking & Decay** | `backend/app/search/reranker.py` | `CandidateReranker.rerank()` | `test_candidate_reranking_phrase_match` |
+| **RAG Context Window Builder** | `backend/app/rag/context_builder.py` | `RAGContextBuilder.build_context()` | `test_security_rag_untrusted_data_barrier` |
+| **Multi-Provider LLM Gateway** | `backend/app/llm/gateway.py` | `LLMGateway.analyze_structured()` | `test_llm_gateway_cascading_fallback` |
+| **Prompt Injection Defense** | `backend/app/core/security.py` | `sanitize_external_text()` | `test_sanitize_prompt_injection_patterns` |
+| **Live SSE Dashboard Streaming** | `backend/app/api/v1/stream.py` | `stream_live_events()` | `test_api_endpoints.py` |
+| **Liveness & Readiness Probes** | `backend/app/api/v1/health.py` | `liveness_probe()`, `readiness_probe()` | `test_health_and_readiness_endpoints` |
+
+---
+
+## 2. Execution Tracing Guide
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                  SUBSYSTEM NAVIGATION MAP                                   │
-├──────────────────────────┬─────────────────────────────────────┬────────────────────────────┤
-│ Subsystem                │ Core Implementation Files           │ Verification Test          │
-├──────────────────────────┼─────────────────────────────────────┼────────────────────────────┤
-│ 1. Wikimedia Ingestion   │ workers/stream_ingestor/ingestor.py │ test_schemas.py            │
-│ 2. Kafka Event Bus       │ backend/app/kafka/producer.py       │ test_confluent_kafka_...   │
-│                          │ backend/app/kafka/consumer.py       │                            │
-│ 3. Event Processor       │ workers/processor/processor.py      │ test_kafka_idempotency.py  │
-│ 4. Sliding Window Metric │ backend/app/redis/counters.py       │ test_spike_detector.py     │
-│ 5. Analytics & Spikes    │ workers/analytics/analytics.py      │ test_spike_detector.py     │
-│ 6. Vector Embedding      │ workers/embedding/embedding_work... │ test_e2e_pipeline.py       │
-│ 7. Hybrid Search (RRF)   │ backend/app/search/hybrid.py        │ test_hybrid_search.py      │
-│ 8. RAG Context & LLM     │ backend/app/rag/context_builder.py  │ test_gateway_fallback.py   │
-│                          │ backend/app/llm/gateway.py          │                            │
-│ 9. Prompt Defense        │ backend/app/core/security.py        │ test_prompt_defense.py     │
-│ 10. Live SSE Stream      │ backend/app/api/v1/stream.py        │ test_api_endpoints.py      │
-│ 11. Health Probes        │ backend/app/api/v1/health.py        │ test_api_endpoints.py      │
-└──────────────────────────┴─────────────────────────────────────┴────────────────────────────┘
+1. Ingestion:     workers/stream_ingestor/wikimedia_client.py ──► backend/app/kafka/producer.py
+2. Processing:    workers/processor/processor.py ──► backend/app/db/session.py
+3. Persistence:   backend/app/models/article.py, edit.py, processing_job.py
+4. Aggregation:   backend/app/redis/counters.py (act:art:{id}:edits)
+5. Analytics:     workers/analytics/detector.py ──► 'wikimedia.trend.detected'
+6. Embedding:     workers/embedding/embedding_worker.py ──► backend/app/models/knowledge_chunk.py
+7. Hybrid Search: backend/app/search/hybrid.py (pgvector <=> + GIN FTS + RRF k=60)
+8. RAG Synthesis: backend/app/rag/context_builder.py ──► backend/app/llm/gateway.py
+9. Broadcasting:  backend/app/api/v1/stream.py (asyncio.Queue maxsize=100)
 ```
-
----
-
-## 2. Deep Component Breakdown
-
-### 1. Stream Ingestor
-- **Entry Point:** `workers/stream_ingestor/main.py`
-- **Main Class / Function:** `StreamIngestorService.start_ingestion()` in [`workers/stream_ingestor/ingestor.py`](file:///d:/NexusAI/workers/stream_ingestor/ingestor.py)
-- **Kafka Interaction:** Produces normalized JSON to `wikimedia.recentchange` (key: `article_title`).
-- **Failure Handling:** Reconnection with exponential backoff on SSE disconnects; in-memory fallback if broker is unconfigured.
-- **Verification Test:** `backend/tests/unit/test_schemas.py`
-
-### 2. Event Processor Worker (Idempotent Persistence)
-- **Entry Point:** `workers/processor/main.py`
-- **Main Class / Function:** `EventProcessorWorker.handle_event(event_data)` in [`workers/processor/processor.py`](file:///d:/NexusAI/workers/processor/processor.py)
-- **Database Interaction:** Queries & inserts `ProcessingJob` (`idempotency_key = "proc:{event_id}"`), `articles`, `editors`, and `edits` in PostgreSQL 16.
-- **Kafka Interaction:** Consumes `wikimedia.recentchange`; emits `wikimedia.article.processed`; manual offset commit via `consumer.commit(msg)`.
-- **Failure Handling:** Catches `IntegrityError` on concurrent duplicate collision $\to$ `await session.rollback()`, returns safely as idempotent skip.
-- **Verification Test:** `backend/tests/kafka/test_kafka_idempotency.py`
-
-### 3. Redis Rolling Sliding Windows
-- **Main Class / Function:** `ActivityCounterService.record_article_edit()` in [`backend/app/redis/counters.py`](file:///d:/NexusAI/backend/app/redis/counters.py)
-- **Redis Commands:** `ZADD act:art:{id}:edits <ts> <event_id>`, `ZREMRANGEBYSCORE act:art:{id}:edits -inf (now - window)`, `ZCARD act:art:{id}:edits`.
-- **Failure Handling:** Catches connection timeouts and degrades to `InMemoryFallbackRedis`.
-- **Verification Test:** `backend/tests/failure/test_failure_scenarios.py`
-
-### 4. Embedding Worker & Vector Storage
-- **Entry Point:** `workers/embedding/main.py`
-- **Main Class / Function:** `EmbeddingWorker.handle_event(event_data)` in [`workers/embedding/embedding_worker.py`](file:///d:/NexusAI/workers/embedding/embedding_worker.py)
-- **Model Used:** `SentenceTransformer('all-MiniLM-L6-v2')` producing 384-dimensional dense vectors.
-- **Database Interaction:** Inserts into `knowledge_chunks` with `embedding vector(384)`.
-- **Verification Test:** `backend/tests/integration/test_e2e_pipeline.py`
-
-### 5. Hybrid Search & Reciprocal Rank Fusion (RRF)
-- **Main Class / Function:** `HybridSearchService.search_knowledge()` in [`backend/app/search/hybrid.py`](file:///d:/NexusAI/backend/app/search/hybrid.py)
-- **Database Queries:** Dual asynchronous queries in PostgreSQL:
-  1. Vector search: `ORDER BY embedding <=> :query_vec LIMIT :limit`
-  2. Full-Text Search: `WHERE to_tsvector('english', title || ' ' || content) @@ plainto_tsquery(:query)`
-- **Mathematical Formula:** $\text{RRF}(d) = \sum \frac{1}{60 + \text{rank}_i(d)}$
-- **Verification Test:** `backend/tests/rag/test_hybrid_search.py`, `backend/tests/unit/test_rrf_math.py`
-
-### 6. LLM Gateway & Prompt Injection Mitigation
-- **Main Class / Function:** `LLMGateway.analyze_structured()` in [`backend/app/llm/gateway.py`](file:///d:/NexusAI/backend/app/llm/gateway.py)
-- **Security Sanitization:** `sanitize_external_text()` in [`backend/app/core/security.py`](file:///d:/NexusAI/backend/app/core/security.py) and `<untrusted_wikipedia_content>` tag fencing in `context_builder.py`.
-- **Fallback Chain:** Google Gemini Flash $\to$ Local Ollama (`llama3.2:1b`) $\to$ Deterministic `MockProvider`.
-- **Verification Test:** `backend/tests/security/test_security_hardening.py`, `backend/tests/llm/test_gateway_fallback.py`

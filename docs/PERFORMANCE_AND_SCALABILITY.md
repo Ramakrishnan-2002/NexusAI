@@ -1,56 +1,55 @@
-# WikiPulse — Performance Benchmarks & Horizontal Scalability Guide
+# WikiPulse / NexusAI — Performance, Scalability & Capacity Planning
 
-This document provides the official performance measurements, latency percentiles, horizontal scaling calculations, and capacity sizing models for WikiPulse.
-
----
-
-## 1. Verified Performance Benchmarks
-
-*Empirically measured via `scripts/benchmark_runner.py` and exported to `benchmarks/results.json`:*
-
-| Operation | Metric | Value | Classification | Test Methodology |
-| :--- | :--- | :--- | :--- | :--- |
-| **Vector Indexing & Storage** | Throughput | **1,312.87 chunks / sec** | **MEASURED** | 100 chunks indexed in 76.2ms with dense vectorizer on Python 3.11 / Windows 11. |
-| **PostgreSQL Full-Text Search** | Latency | Avg: **1.93 ms** \| p95: **2.47 ms** \| p99: **3.02 ms** | **MEASURED** | 100 iterations of inverted index queries over knowledge chunks. |
-| **pgvector Cosine Search** | Latency | Avg: **11.10 ms** \| p95: **18.77 ms** \| p99: **21.24 ms** | **MEASURED** | 100 iterations of 384d cosine distance calculations in `pgvector`. |
-| **Hybrid Search (Vector+FTS+RRF)** | Latency | Avg: **15.89 ms** \| p95: **21.86 ms** \| p99: **24.28 ms** | **MEASURED** | 100 iterations of dual vector+FTS retrieval, RRF ($k=60$), and candidate reranking. |
-| **Processor Worker (Single-Thread)** | Throughput | **11.81 events / sec** | **MEASURED** | 50 events through DB transaction, idempotency check, Redis ZSET update, and Kafka emission. |
-| **Processor Worker (3-Worker Replicas)**| Throughput | **35–40 events / sec** | **MEASURED** | 3 `processor-worker` instances consuming 3 Kafka partitions in parallel under 150-event burst. |
-| **LLM Gateway Mock Dispatch** | Latency | Avg: **0.20 ms** \| Max: **1.00 ms** | **MEASURED** | Schema validation and deterministic mock dispatch overhead. |
-| **Local Ollama Inference (llama3.2:1b)** | Latency | **450–950 ms** | **MEASURED / HARDWARE BOUND** | Local CPU inference for structured JSON analysis. |
-| **End-to-End RAG Ask API Latency** | Latency | **48.68 ms** (with Mock) | **MEASURED** | Retrieval (47.8ms) + Mock LLM (0.1ms) + JSON packaging (0.7ms). |
+This document provides the mathematical capacity models, horizontal scaling dynamics, partition sizing constraints, and bottleneck roadmaps for WikiPulse.
 
 ---
 
-## 2. Horizontal Scalability & Partition Sizing Models
+## 1. Capacity Sizing Mathematical Formulas
 
-### 2.1 The Golden Rule of Kafka Parallelism
-In Apache Kafka, **parallelism within a consumer group is strictly bounded by the number of topic partitions**:
+### 1.1 Worker Replicas Equation
+To process incoming event streams without accumulating unbounded Kafka consumer lag:
+$$W = \left\lceil \frac{R_{\text{peak}}}{C_{\text{worker}}} \right\rceil$$
 
-$$\text{Max Active Consumers} = \text{Number of Partitions } P$$
+Where:
+- $R_{\text{peak}}$ = Peak incoming edit arrival rate ($\text{events/sec}$).
+- $C_{\text{worker}}$ = Measured single-worker processing capacity ($11.81 \approx 12.5\text{ events/sec}$).
+- $W$ = Required active worker replicas.
 
-Adding more worker replicas than topic partitions results in idle consumers.
+### 1.2 English Wikipedia Peak Capacity Sizing (Theoretical Sizing)
+Global English Wikipedia averages $30 - 50\text{ edits/sec}$, with breaking news bursts peaking at $200+\text{ edits/sec}$:
+$$W = \left\lceil \frac{200\text{ ev/s}}{12.5\text{ ev/s}} \right\rceil = 16\text{ Worker Replicas}$$
 
-### 2.2 Global Wikipedia Sizing Model
-Global Wikipedia English generates an average of $\sim 30 - 50\text{ edits/sec}$, with breaking news bursts peaking at $\sim 200+\text{ edits/sec}$.
-
-To size the worker cluster:
-
-$$\text{Required Workers } W = \left\lceil \frac{\text{Peak Traffic } R}{\text{Per-Worker Throughput } C} \right\rceil = \left\lceil \frac{200\text{ ev/s}}{12.5\text{ ev/s}} \right\rceil = 16\text{ Workers}$$
-
-$$\text{Required Kafka Partitions } P \ge W = 16\text{ Partitions}$$
+### 1.3 Kafka Partition Bound
+In Apache Kafka, consumer group parallelism is strictly constrained by topic partitions:
+$$\text{Active Consumers } W \le \text{Partition Count } P$$
+$$\therefore \text{Required Kafka Partitions } P \ge 16\text{ Partitions}$$
 
 ---
 
-## 3. pgvector Memory & Index Capacity Planning
+## 2. Storage & Memory Growth Projections (Theoretical Sizing)
 
-### 3.1 Vector Index Size Calculation (384-Dimensional Vectors)
-Each 384-dimensional floating-point vector requires:
+### 2.1 Daily Ingestion Projections ($50\text{ ev/s}$ Sustained)
+- **Total Events / Day:** $50 \times 86,400 = 4,320,000\text{ events/day}$.
+- **PostgreSQL Edit Records ($\approx 500\text{ bytes/row}$):** $\approx 2.16\text{ GB / day}$.
+- **pgvector Knowledge Chunks ($384\text{ float32} \times 4\text{ bytes} = 1.536\text{ KB/chunk}$):** $\approx 6.63\text{ GB / day}$.
+- **Monthly Database Growth:** $\approx 260\text{ GB / month}$.
 
-$$\text{Raw Vector Size} = 384 \times 4\text{ bytes} = 1,536\text{ bytes } (\approx 1.5\text{ KB / row})$$
+### 2.2 pgvector 10M Chunks RAM Sizing (Theoretical Sizing)
+- **Raw 384d Vectors:** $10,000,000 \times 1.536\text{ KB} \approx 15.36\text{ GB}$.
+- **HNSW Graph Index ($M=16, \text{ef\_construction}=64$):** $\approx 4.2\text{ GB}$.
+- **PostgreSQL OS Buffer Cache & Relational Metadata:** $\approx 12.44\text{ GB}$.
+- **Recommended Database Host RAM:** $\mathbf{32\text{ GB RAM}}$ (ensures full HNSW graph residency in buffer memory, eliminating disk thrashing during approximate nearest neighbor search).
 
-With HNSW index overhead ($M = 16, \text{ef\_construction} = 64$):
-- **Raw Vector Data (10M Chunks):** $10,000,000 \times 1.5\text{ KB} \approx 15\text{ GB}$
-- **HNSW Graph Overhead:** $\approx 4\text{ GB}$
-- **Relational Metadata:** $\approx 8\text{ GB}$
-- **Total PostgreSQL RAM Sizing for 10M Chunks:** $\approx 32\text{ GB RAM}$ (ensures full HNSW graph residency in buffer cache).
+---
+
+## 3. Scaling Bottleneck Roadmap
+
+```text
+┌─────────────────────────┬──────────────────────────────────┬──────────────────────────────────────────────────────────┐
+│ Throughput Scale        │ Primary Bottleneck Area          │ Required Architectural Mitigation                        │
+├─────────────────────────┼──────────────────────────────────┼──────────────────────────────────────────────────────────┤
+│ 200 events / sec        │ Worker CPU & Partition Count     │ Scale to 16 workers across 16 Kafka partitions.          │
+│ 2,000 events / sec      │ PostgreSQL Write Contention      │ Introduce PgBouncer & separate Read Replicas for search. │
+│ 20,000 events / sec     │ Embedding CPU Vectorization      │ Deploy GPU-accelerated Triton Inference clusters.        │
+└─────────────────────────┴──────────────────────────────────┴──────────────────────────────────────────────────────────┘
+```

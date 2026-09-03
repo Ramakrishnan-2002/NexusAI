@@ -136,7 +136,7 @@ backend/tests/unit/test_rrf_math.py (2 passed)
 backend/tests/unit/test_schemas.py (3 passed)
 backend/tests/unit/test_spike_detector.py (2 passed)
 
-======================= 31 passed, 1 skipped in 28.37s ========================
+======================= 31 passed, 1 skipped in 28.71s ========================
 ```
 
 ---
@@ -149,7 +149,7 @@ backend/tests/unit/test_spike_detector.py (2 passed)
 
 ### Step 1: Clone and Configure Environment
 ```bash
-git clone https://github.com/your-username/NexusAI.git
+git clone https://github.com/Ramakrishnan-2002/NexusAI.git
 cd NexusAI
 cp .env.example .env
 ```
@@ -183,19 +183,31 @@ curl -X POST http://localhost:8000/api/v1/ai/ask \
 
 ## 8. Documentation Directory
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Detailed runtime components, boundaries, and storage architecture.
-- [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) — Sizing models, Kafka partition strategy, and consistency guarantees.
+### Core Architecture
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Runtime components, boundaries, and storage architecture.
+- [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) — Complete system design, technology justification, and local vs production comparison.
 - [`docs/DATA_FLOW.md`](docs/DATA_FLOW.md) — Step-by-step trace of edit events from Wikimedia to SSE clients.
+- [`docs/API.md`](docs/API.md) — REST endpoints, request/response schemas, and SSE streaming guide.
+- [`docs/ADRs/`](docs/ADRs/) — Architecture Decision Records (ADR-001 through ADR-008).
+
+### Technical Deep Dives
+- [`docs/KAFKA_DEEP_DIVE.md`](docs/KAFKA_DEEP_DIVE.md) — confluent-kafka async bridge, partition strategies, and offset semantics.
+- [`docs/RAG_DEEP_DIVE.md`](docs/RAG_DEEP_DIVE.md) — Hybrid retrieval, RRF math, token budgeting, and citation grounding.
+
+### Reliability & Operations
 - [`docs/FAILURE_ENGINEERING.md`](docs/FAILURE_ENGINEERING.md) — Master Failure Matrix across broker, worker, and database outages.
-- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — Benchmark harness, sample counts, percentiles, and methodology.
 - [`docs/SECURITY.md`](docs/SECURITY.md) — Layered prompt defense, sanitization, and API security.
 - [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) — Prometheus metrics dictionary, `/livez` vs `/readyz` probes, and alerts.
-- [`docs/TESTING.md`](docs/TESTING.md) — Complete 32-test classification matrix and reproduction commands.
-- [`docs/API.md`](docs/API.md) — REST endpoints, request/response schemas, and SSE streaming guide.
-- [`docs/KNOW_YOUR_CODE.md`](docs/KNOW_YOUR_CODE.md) — Code-level implementation directory.
-- [`docs/ARCHITECTURE_CHEAT_SHEET.md`](docs/ARCHITECTURE_CHEAT_SHEET.md) — High-density 3-page summary.
-- [`docs/PROJECT_PRESENTATION_SCRIPT.md`](docs/PROJECT_PRESENTATION_SCRIPT.md) — 15-minute spoken presentation talk track.
-- [`docs/ADRs/`](docs/ADRs/) — Architecture Decision Records (ADR-001 through ADR-008).
+
+### Quality & Performance
+- [`docs/TESTING.md`](docs/TESTING.md) — Complete 32-test classification matrix and verification commands.
+- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — Empirical benchmarks, sample counts, percentiles, and methodology.
+- [`docs/PERFORMANCE_AND_SCALABILITY.md`](docs/PERFORMANCE_AND_SCALABILITY.md) — Capacity planning, worker sizing formulas, and bottleneck roadmap.
+
+### Interview & Study
+- [`docs/INTERVIEW_DEFENSE.md`](docs/INTERVIEW_DEFENSE.md) — Comprehensive interview defense Q&As and 15-minute presentation script.
+- [`docs/KNOW_YOUR_CODE.md`](docs/KNOW_YOUR_CODE.md) — Master file, class, and method implementation directory.
+- [`docs/NEXUSAI_PROJECT_TEXTBOOK.md`](docs/NEXUSAI_PROJECT_TEXTBOOK.md) — Complete 28-Part engineering master textbook.
 
 ---
 

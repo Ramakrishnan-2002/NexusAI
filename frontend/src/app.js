@@ -1,4 +1,6 @@
 // WikiPulse Frontend Application Logic
+const API_BASE = (window.location.protocol === 'file:' || (window.location.port !== '8000' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')) ? 'http://localhost:8000' : '';
+
 let eventSource = null;
 let currentTab = 'pulse';
 
@@ -39,19 +41,26 @@ function initLiveStream() {
     const statusBadge = document.getElementById('stream-status');
 
     try {
-        eventSource = new EventSource('/api/v1/stream/live');
+        if (eventSource) {
+            eventSource.close();
+        }
+        eventSource = new EventSource(`${API_BASE}/api/v1/stream/live`);
 
         eventSource.addEventListener('recent_change', (e) => {
-            const data = JSON.parse(e.data);
-            appendStreamEvent(data);
+            try {
+                const data = JSON.parse(e.data);
+                appendStreamEvent(data);
+            } catch (err) {
+                console.error('Error parsing SSE event:', err);
+            }
         });
 
         eventSource.onopen = () => {
-            statusBadge.innerText = 'Stream Active';
+            if (statusBadge) statusBadge.innerText = 'Stream Active';
         };
 
         eventSource.onerror = () => {
-            statusBadge.innerText = 'Reconnecting...';
+            if (statusBadge) statusBadge.innerText = 'Reconnecting...';
         };
     } catch (err) {
         console.warn('SSE stream error:', err);
@@ -96,16 +105,24 @@ function appendStreamEvent(evt) {
 function startMetricsPolling() {
     const fetchMetrics = async () => {
         try {
-            const res = await fetch('/api/v1/metrics');
+            const res = await fetch(`${API_BASE}/api/v1/metrics`);
             if (res.ok) {
                 const data = await res.json();
-                document.getElementById('kpi-processed').innerText = data.processed_count.toLocaleString();
-                document.getElementById('kpi-rate').innerText = data.events_per_sec.toFixed(1);
-                document.getElementById('kpi-spikes').innerText = data.trend_count;
-                document.getElementById('kpi-cache-hit').innerText = `${data.redis_hit_ratio_percent}%`;
-                document.getElementById('kpi-latency').innerText = `${data.api_p95_latency_ms} ms`;
-                document.getElementById('kpi-fallbacks').innerText = data.llm_fallbacks;
-                document.getElementById('kpi-dlq').innerText = data.dlq_count;
+                const processedEl = document.getElementById('kpi-processed');
+                const rateEl = document.getElementById('kpi-rate');
+                const spikesEl = document.getElementById('kpi-spikes');
+                const cacheHitEl = document.getElementById('kpi-cache-hit');
+                const latencyEl = document.getElementById('kpi-latency');
+                const fallbacksEl = document.getElementById('kpi-fallbacks');
+                const dlqEl = document.getElementById('kpi-dlq');
+
+                if (processedEl) processedEl.innerText = (data.processed_count || 0).toLocaleString();
+                if (rateEl) rateEl.innerText = (data.events_per_sec || 0).toFixed(1);
+                if (spikesEl) spikesEl.innerText = data.trend_count || 0;
+                if (cacheHitEl) cacheHitEl.innerText = `${data.redis_hit_ratio_percent || 100}%`;
+                if (latencyEl) latencyEl.innerText = `${data.api_p95_latency_ms || 0} ms`;
+                if (fallbacksEl) fallbacksEl.innerText = data.llm_fallbacks || 0;
+                if (dlqEl) dlqEl.innerText = data.dlq_count || 0;
             }
         } catch (err) {
             console.error('Metrics fetch error:', err);
@@ -122,7 +139,7 @@ async function loadHotArticles() {
     if (!list) return;
 
     try {
-        const res = await fetch('/api/v1/articles?limit=10');
+        const res = await fetch(`${API_BASE}/api/v1/articles?limit=10`);
         if (res.ok) {
             const articles = await res.json();
             list.innerHTML = '';
@@ -134,7 +151,7 @@ async function loadHotArticles() {
                         <span class="text-xs font-bold text-indigo-400 w-4">${idx + 1}</span>
                         <div>
                             <div class="text-xs font-semibold text-white">${escapeHtml(art.title)}</div>
-                            <div class="text-[10px] text-slate-500">${art.wiki} &bull; Namespace ${art.namespace}</div>
+                            <div class="text-[10px] text-slate-500">${escapeHtml(art.wiki || 'enwiki')} &bull; Namespace ${art.namespace || 0}</div>
                         </div>
                     </div>
                     <div class="text-right">
@@ -155,12 +172,12 @@ async function loadTrends() {
     if (!grid) return;
 
     try {
-        const res = await fetch('/api/v1/trends?limit=20');
+        const res = await fetch(`${API_BASE}/api/v1/trends?limit=20`);
         if (res.ok) {
             const data = await res.json();
             grid.innerHTML = '';
 
-            if (data.trends.length === 0) {
+            if (!data.trends || data.trends.length === 0) {
                 grid.innerHTML = `
                     <div class="col-span-full py-12 text-center text-slate-500 text-xs">
                         No activity spikes detected yet. Spikes appear automatically when edit velocity exceeds 3.0x baseline.
@@ -183,14 +200,14 @@ async function loadTrends() {
                 card.innerHTML = `
                     <div>
                         <div class="flex items-center justify-between mb-2">
-                            <span class="px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-400 rounded border border-amber-500/30">${trend.spike_multiplier.toFixed(1)}x Velocity Spike</span>
-                            <span class="text-[10px] text-slate-500">${new Date(trend.first_detected_at).toLocaleTimeString()}</span>
+                            <span class="px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-400 rounded border border-amber-500/30">${trend.spike_multiplier ? trend.spike_multiplier.toFixed(1) : '3.0'}x Velocity Spike</span>
+                            <span class="text-[10px] text-slate-500">${trend.first_detected_at ? new Date(trend.first_detected_at).toLocaleTimeString() : ''}</span>
                         </div>
                         <h3 class="text-sm font-bold text-white mb-1">${escapeHtml(trend.article_title)}</h3>
                         <div class="flex items-center space-x-4 text-xs text-slate-400 mt-2">
-                            <div>Score: <b class="text-white">${trend.activity_score.toFixed(1)}</b></div>
-                            <div>Velocity: <b class="text-white">${trend.edits_per_minute.toFixed(1)}/min</b></div>
-                            <div>Editors: <b class="text-white">${trend.unique_editors}</b></div>
+                            <div>Score: <b class="text-white">${trend.activity_score ? trend.activity_score.toFixed(1) : '0.0'}</b></div>
+                            <div>Velocity: <b class="text-white">${trend.edits_per_minute ? trend.edits_per_minute.toFixed(1) : '0.0'}/min</b></div>
+                            <div>Editors: <b class="text-white">${trend.unique_editors || 1}</b></div>
                         </div>
                         ${summaryHtml}
                     </div>
@@ -210,7 +227,7 @@ async function analyzeTrend(trendId, btnElement) {
     btnElement.innerHTML = `<span class="animate-spin mr-1">&bull;</span> Synthesizing Evidence...`;
 
     try {
-        const res = await fetch(`/api/v1/trends/${trendId}/analyze`, { method: 'POST' });
+        const res = await fetch(`${API_BASE}/api/v1/trends/${trendId}/analyze`, { method: 'POST' });
         if (res.ok) {
             loadTrends();
         } else {
@@ -226,19 +243,24 @@ async function analyzeTrend(trendId, btnElement) {
 // RAG Hybrid Search & QA Submission
 async function handleAskSubmit(event) {
     event.preventDefault();
-    const query = document.getElementById('rag-query-input').value.trim();
+    const queryInput = document.getElementById('rag-query-input');
+    const query = queryInput ? queryInput.value.trim() : '';
     if (!query) return;
 
-    const provider = document.getElementById('rag-provider-select').value;
-    const topK = parseInt(document.getElementById('rag-topk-select').value) || 5;
+    const providerSelect = document.getElementById('rag-provider-select');
+    const provider = providerSelect ? providerSelect.value : null;
+    const topkSelect = document.getElementById('rag-topk-select');
+    const topK = topkSelect ? (parseInt(topkSelect.value) || 5) : 5;
     const submitBtn = document.getElementById('btn-rag-submit');
     const container = document.getElementById('rag-response-container');
 
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = `<span class="animate-spin mr-1">&bull;</span> Retrieving &amp; Reasoning...`;
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span class="animate-spin mr-1">&bull;</span> Retrieving &amp; Reasoning...`;
+    }
 
     try {
-        const res = await fetch('/api/v1/ai/ask', {
+        const res = await fetch(`${API_BASE}/api/v1/ai/ask`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -251,53 +273,63 @@ async function handleAskSubmit(event) {
         if (res.ok) {
             const data = await res.json();
             renderRAGResponse(data);
-            container.classList.remove('hidden');
+            if (container) container.classList.remove('hidden');
         } else {
             alert('Failed to retrieve intelligence answer from LLM Gateway.');
         }
     } catch (err) {
         console.error('RAG QA error:', err);
     } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = `<i data-lucide="search" class="w-3.5 h-3.5"></i><span>Ask WikiPulse</span>`;
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<i data-lucide="search" class="w-3.5 h-3.5"></i><span>Ask WikiPulse</span>`;
+        }
         lucide.createIcons();
     }
 }
 
 function renderRAGResponse(data) {
-    document.getElementById('rag-model-badge').innerText = `${data.provider_used.toUpperCase()} (${data.model_used})`;
-    document.getElementById('rag-timing-badge').innerText = `Retrieval: ${data.retrieval_took_ms}ms | LLM: ${data.llm_took_ms}ms | Total: ${data.total_took_ms}ms`;
-    document.getElementById('rag-answer-text').innerText = data.answer;
+    const modelBadge = document.getElementById('rag-model-badge');
+    const timingBadge = document.getElementById('rag-timing-badge');
+    const answerText = document.getElementById('rag-answer-text');
+
+    if (modelBadge) modelBadge.innerText = `${(data.provider_used || 'mock').toUpperCase()} (${data.model_used || 'default'})`;
+    if (timingBadge) timingBadge.innerText = `Retrieval: ${data.retrieval_took_ms || 0}ms | LLM: ${data.llm_took_ms || 0}ms | Total: ${data.total_took_ms || 0}ms`;
+    if (answerText) answerText.innerText = data.answer;
 
     // Evidence Points
     const evidenceList = document.getElementById('rag-evidence-points');
-    evidenceList.innerHTML = '';
-    const points = data.structured_analysis.evidence_points || [];
-    if (points.length === 0) {
-        evidenceList.innerHTML = '<li>Grounded directly on recent indexed revision changes.</li>';
-    } else {
-        points.forEach(p => {
-            const li = document.createElement('li');
-            li.innerText = p;
-            evidenceList.appendChild(li);
-        });
+    if (evidenceList) {
+        evidenceList.innerHTML = '';
+        const points = (data.structured_analysis && data.structured_analysis.evidence_points) || [];
+        if (points.length === 0) {
+            evidenceList.innerHTML = '<li>Grounded directly on recent indexed revision changes.</li>';
+        } else {
+            points.forEach(p => {
+                const li = document.createElement('li');
+                li.innerText = p;
+                evidenceList.appendChild(li);
+            });
+        }
     }
 
     // Citations
     const citationsGrid = document.getElementById('rag-citations-grid');
-    citationsGrid.innerHTML = '';
-    (data.citations || []).forEach(c => {
-        const div = document.createElement('div');
-        div.className = 'p-3 bg-slate-950 border border-slate-800 rounded-lg text-xs';
-        div.innerHTML = `
-            <div class="font-bold text-indigo-400 mb-1 flex items-center justify-between">
-                <span>${escapeHtml(c.article_title)}</span>
-                <span class="text-[10px] text-slate-500 font-mono">Rev: ${c.revision_id || 'N/A'}</span>
-            </div>
-            <p class="text-slate-400 text-[11px] italic">"${escapeHtml(c.snippet)}"</p>
-        `;
-        citationsGrid.appendChild(div);
-    });
+    if (citationsGrid) {
+        citationsGrid.innerHTML = '';
+        (data.citations || []).forEach(c => {
+            const div = document.createElement('div');
+            div.className = 'p-3 bg-slate-950 border border-slate-800 rounded-lg text-xs';
+            div.innerHTML = `
+                <div class="font-bold text-indigo-400 mb-1 flex items-center justify-between">
+                    <span>${escapeHtml(c.article_title)}</span>
+                    <span class="text-[10px] text-slate-500 font-mono">Rev: ${c.revision_id || 'N/A'}</span>
+                </div>
+                <p class="text-slate-400 text-[11px] italic">"${escapeHtml(c.snippet)}"</p>
+            `;
+            citationsGrid.appendChild(div);
+        });
+    }
 }
 
 function escapeHtml(text) {

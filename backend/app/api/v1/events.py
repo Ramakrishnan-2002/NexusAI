@@ -15,18 +15,4 @@ async def get_recent_events(
 ):
     """Retrieve the most recent Wikipedia edit events processed by the platform."""
     edits = await EditRepository.get_recent_edits_global(db, limit=limit)
-    return [
-        EditItem(
-            id=e.id,
-            event_id=e.event_id,
-            editor_username=e.editor_username,
-            is_bot=e.is_bot,
-            is_minor=e.is_minor,
-            revision_id=e.revision_id,
-            change_size=e.change_size,
-            byte_diff=e.byte_diff,
-            comment=e.comment,
-            occurred_at=e.occurred_at,
-        )
-        for e in edits
-    ]
+    return [EditItem.model_validate(e) for e in edits]

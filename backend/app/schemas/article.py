@@ -8,6 +8,7 @@ class EditItem(BaseModel):
 
     id: int
     event_id: str
+    article_title: Optional[str] = None
     editor_username: str
     is_bot: bool
     is_minor: bool

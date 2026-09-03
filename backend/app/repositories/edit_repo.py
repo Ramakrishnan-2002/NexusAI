@@ -1,6 +1,7 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.article import Article
 from app.models.edit import Edit
 from app.schemas.event import IngestedEvent
 
@@ -53,7 +54,27 @@ class EditRepository:
     async def get_recent_edits_global(
         session: AsyncSession,
         limit: int = 50,
-    ) -> List[Edit]:
-        stmt = select(Edit).order_by(Edit.occurred_at.desc()).limit(limit)
+    ) -> List[Dict[str, Any]]:
+        stmt = (
+            select(Edit, Article.title)
+            .outerjoin(Article, Edit.article_id == Article.id)
+            .order_by(Edit.occurred_at.desc())
+            .limit(limit)
+        )
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        edits = []
+        for edit, title in result.all():
+            edits.append({
+                "id": edit.id,
+                "event_id": edit.event_id,
+                "article_title": title or "Wikipedia Article",
+                "editor_username": edit.editor_username,
+                "is_bot": edit.is_bot,
+                "is_minor": edit.is_minor,
+                "revision_id": edit.revision_id,
+                "change_size": edit.change_size,
+                "byte_diff": edit.byte_diff,
+                "comment": edit.comment,
+                "occurred_at": edit.occurred_at,
+            })
+        return edits

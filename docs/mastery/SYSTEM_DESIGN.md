@@ -1,82 +1,78 @@
-# NexusAI / WikiPulse — Production System Design & Scalability Architecture
+# NexusAI / WikiPulse — System Design & Scalability Analysis
 
-This document provides the **system design specification, capacity planning formulas, failure mode analyses, and horizontal scaling roadmaps** for the NexusAI platform.
+This document provides the **system design specification, capacity planning models, failure mode analyses, and horizontal scaling roadmaps** for the NexusAI platform.
 
 ---
 
-## 1. Requirements & Non-Functional Requirements (NFRs)
+## 1. Requirements & Non-Functional Constraints
 
-### Functional Requirements
-1. **Continuous Ingestion:** Ingest real-time Wikipedia revision streams ($\sim 50 - 500\text{ edits/sec}$ steady state).
-2. **Velocity Tracking:** Maintain rolling edit velocity counters per article over 1-minute, 5-minute, and 15-minute sliding windows.
-3. **Automated Spike Detection:** Trigger trend alerts when an article's edit velocity exceeds $\ge 3.0\times$ its 15-minute historical baseline with $> 3$ unique active editors.
-4. **Hybrid Knowledge Retrieval:** Provide sub-50ms hybrid search combining pgvector semantic search and PostgreSQL GIN lexical search via Reciprocal Rank Fusion ($k=60$).
-5. **Grounded AI Synthesis:** Synthesize factual change summaries with verified revision citations and prompt injection defense.
+### Functional Capabilities
+1. **Continuous Ingestion:** Ingest real-time Wikipedia revision streams via Wikimedia SSE or synthetic edit generators.
+2. **Velocity Tracking:** Maintain rolling edit velocity counters per article over 1-minute, 5-minute, and 15-minute sliding windows in Redis.
+3. **Automated Spike Detection:** Trigger trend alerts when an article's edit velocity exceeds $\ge 3.0\times$ its historical baseline with $> 3$ unique active editors.
+4. **Hybrid Knowledge Retrieval:** Dual-index search combining pgvector semantic search and PostgreSQL GIN lexical search via Reciprocal Rank Fusion ($k=60$).
+5. **Grounded AI Synthesis:** Synthesize factual change summaries with verified revision citations and XML prompt isolation defense.
 
-### Non-Functional Requirements (SLAs)
+### Non-Functional Latency & Resilience Targets
 
-| Dimension | Target SLA | Implementation Mechanism |
+| Dimension | Target Profile | Architectural Mechanism |
 | :--- | :--- | :--- |
-| **API p95 Read Latency** | $< 50\text{ ms}$ (Hybrid Search) | Dual-index parallel query + in-memory RRF fusion. |
-| **Ingestion Throughput** | $\ge 2,500\text{ events/sec}$ | Decoupled Kafka streaming + asynchronous batch workers. |
-| **Spike Detection Latency** | $< 2.0\text{ seconds}$ from edit | Redis ZSET sorted sets + sliding window score aggregation. |
-| **Availability** | $99.9\%$ uptime | Multi-provider AI fallback cascade (Gemini $\to$ Ollama $\to$ Mock). |
-| **Delivery Guarantee** | Strict At-Least-Once | Manual Kafka offset commits + PostgreSQL `ProcessingJob` idempotency. |
+| **API Read Latency** | Sub-50ms Hybrid Search (local) | Dual-index parallel query + in-memory RRF fusion ($k=60$). |
+| **Ingestion Pipeline** | Asynchronous decoupled stream | Kafka broker decoupling + asynchronous batch workers. |
+| **Spike Detection** | Real-time sliding window | Redis ZSET sorted sets + atomic pipelines. |
+| **Availability** | Graceful degradation | Multi-provider fallback cascade (Gemini $\to$ Ollama $\to$ Mock). |
+| **Delivery Guarantee** | At-Least-Once Delivery | Manual Kafka offset commits + PostgreSQL `ProcessingJob` idempotency. |
 
 ---
 
-## 2. Capacity Planning & Quantitative Estimations
+## 2. Capacity Planning & Quantitative Estimations (Model)
 
-### A. Storage Sizing & Daily Write Volume
-* **Ingestion Rate:** $150\text{ events/sec}$ average, $1,000\text{ events/sec}$ peak.
-* **Daily Event Count:** $150\text{ events/sec} \times 86,400\text{ sec/day} \approx 13.0\text{ Million edits/day}$.
-* **Average Payload Size:**
-  * Raw JSON: $\sim 1.5\text{ KB}$
+### A. Storage Sizing Model (Example Calculation)
+* **Assumed Ingestion Rate:** $150\text{ events/sec}$ average.
+* **Daily Event Count:** $150 \times 86,400 \approx 13.0\text{ Million edits/day}$.
+* **Payload Estimations:**
   * Normalized PostgreSQL Row (`edits` table): $\sim 350\text{ Bytes}$
   * Knowledge Chunk with 384d Vector: $\sim 500\text{ Bytes (text)} + (384 \times 4\text{ Bytes}) \approx 2.0\text{ KB}$
-* **Daily Storage Ingress:**
-  $$\text{Storage/day} = 13.0\text{M} \times (350\text{B} + 2.0\text{KB}) \approx 30.55\text{ GB/day}$$
-  * Annual Storage Requirement (without retention pruning): $\sim 11.15\text{ TB/year}$.
-  * Retention Policy: Retain full edit deltas for 30 days ($916\text{ GB}$), retain aggregated article rollups indefinitely.
+* **Estimated Storage Growth:**
+  $$\text{Storage/day} \approx 13.0\text{M} \times (350\text{B} + 2.0\text{KB}) \approx 30.5\text{ GB/day}$$
+  * Retention Policy: Retain full revision text for a bounded window (e.g. 30 days), while preserving aggregated article statistics permanently.
 
 ---
 
-### B. Redis In-Memory Sliding Window RAM Sizing
-* **Active Articles Tracked Simultaneously:** $\sim 25,000$ active articles.
-* **Average Edits per Active Article (1-hour TTL):** $\sim 20$ edits.
+### B. Redis In-Memory Working Set Estimation
+* **Simultaneously Active Articles:** $\sim 25,000$ articles during peak hours.
+* **Average Edits per Active Article (1-hour window):** $\sim 20$ edits.
 * **ZSET Memory Overhead per Entry:** $\sim 64\text{ Bytes}$ (member string + 8-byte score).
-* **Total Redis RAM Calculation:**
-  $$\text{RAM} = 25,000\text{ articles} \times 20\text{ entries} \times 64\text{ Bytes} \times 3\text{ (edits, editors, bytes keys)} \approx 96.0\text{ MB}$$
-  * With Redis internal dict overhead ($1.5\times$), working set comfortably fits within $\mathbf{< 256\text{ MB}}$ RAM.
+* **Total Redis RAM Estimation:**
+  $$\text{RAM} \approx 25,000 \times 20 \times 64\text{ Bytes} \times 3\text{ (edits, editors, bytes keys)} \approx 96.0\text{ MB}$$
+  * Accounting for Redis dictionary overhead ($\sim 1.5\times$), the working set fits within $\mathbf{< 256\text{ MB}}$ RAM.
 
 ---
 
-### C. Kafka Partition Sizing Formula
-To determine the number of Kafka partitions ($P$) and worker instances ($W$) required to sustain peak ingestion volume ($R_{\text{peak}} = 5,000\text{ msg/sec}$):
+### C. Kafka Partition Sizing Model
+To determine the number of Kafka partitions ($P$) and worker instances ($W$) required for a given target throughput ($R$):
 
-$$W = \left\lceil \frac{R_{\text{peak}}}{C_{\text{worker}}} \right\rceil$$
+$$W = \left\lceil \frac{R}{C_{\text{worker}}} \right\rceil$$
 
 Where:
-* $R_{\text{peak}} = 5,000\text{ events/sec}$
-* $C_{\text{worker}} = 350\text{ events/sec}$ (measured processing capacity of a single Python async worker instance including DB write and Redis pipeline).
-* Calculation:
-  $$W = \left\lceil \frac{5,000}{350} \right\rceil = \mathbf{15\text{ Workers}}$$
-  * Minimum Partitions: $P \ge 16$ partitions per topic to allow 1-to-1 worker thread allocation.
+* $R$ is the peak incoming event rate.
+* $C_{\text{worker}}$ is the measured processing throughput of a single worker instance (including database write and Redis pipeline).
+* If $R = 1,000\text{ msg/sec}$ and $C_{\text{worker}} = 250\text{ msg/sec}$, then $W = \lceil 1000 / 250 \rceil = 4$ workers, requiring a topic with at least 4 partitions to allow 1-to-1 consumer assignment.
 
 ---
 
-## 3. Bottleneck Analysis & Failure Scenarios
+## 3. Failure Modes & Mitigations
 
 ```mermaid
 flowchart TD
     subgraph Failures ["Failure Modes & Mitigations"]
-        F1["Redis Outage\n(Connection Refused / Crash)"] --> M1["Mitigation: Fallback to PostgreSQL indexed velocity query\n(Degraded latency from 0.5ms to 12ms; zero data loss)"]
+        F1["Redis Unavailable\n(Connection Drop / Restart)"] --> M1["Mitigation: Fallback to PostgreSQL indexed velocity query\n(Degraded latency; continuous availability)"]
         
         F2["Poison Pill Message\n(Malformed JSON / Deserialization Crash)"] --> M2["Mitigation: Catch error, serialize metadata, route to Dead Letter Queue\n(wikimedia.dlq); commit offset to prevent pipeline stall"]
         
         F3["Cloud AI Gateway Outage\n(Gemini 429 RateLimit / Network Timeout)"] --> M3["Mitigation: Automated cascading fallback\n(Gemini -> Local Ollama -> Deterministic Mock)"]
         
-        F4["Database Lock Contention on Hot Articles"] --> M4["Mitigation: Batch commit buffer + Redis distributed mutex\n(SET NX EX 60) preventing concurrent trend inserts"]
+        F4["Database Idempotency on Message Redelivery"] --> M4["Mitigation: UNIQUE constraint on idempotency_key\n(catches IntegrityError, safely skips duplicate)"]
     end
 ```
 
@@ -86,24 +82,34 @@ flowchart TD
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ CURRENT ARCHITECTURE (Validated Single-Node Topology)                                                  │
+│ CURRENT ARCHITECTURE (Validated Single-Node Docker Compose Topology)                                  │
 ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ • Ingestion: Single Stream Ingestor process (wikimedia.recentchange)                                   │
-│ • Kafka: Single-broker KRaft cluster (3 partitions/topic)                                              │
+│ • Ingestion: Single Stream Ingestor process producing to wikimedia.recentchange                        │
+│ • Kafka: Single-broker KRaft cluster (3 partitions per topic)                                         │
 │ • Database: Single PostgreSQL 16 instance with pgvector extension                                     │
 │ • Caching: Single Redis 7 instance with ZSET sliding windows                                           │
-│ • Workers: 4 dedicated async worker processes                                                          │
+│ • Workers: 4 dedicated async worker processes (processor, analytics, embedding, ai)                    │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
                                     │
-                                    │ Scaling Trigger: Traffic > 50,000 events/sec
+                                    │ Conditional Evolution Trigger (Under Higher Traffic Load)
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ [FUTURE] DISTRIBUTED HORIZONTAL SCALING ARCHITECTURE                                                   │
+│ [FUTURE] DISTRIBUTED HORIZONTAL SCALING (Not Implemented in Current Codebase)                          │
 ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ • Kafka: Multi-broker cluster (3x brokers, 32 partitions, replication factor = 3, min.insync.replicas=2│
-│ • Database: Primary-Replica CQRS (1x Writer + 4x Read Replicas for Hybrid Search queries)              │
-│ • Vector Store: Dedicated distributed vector database (Qdrant / Milvus) for > 100M knowledge chunks     │
-│ • Redis: Redis Cluster with hash slot sharding (key tags: act:{art_id})                                │
-│ • Orchestration: Kubernetes Deployments with Horizontal Pod Autoscalers (HPA) scaling on consumer lag  │
+│ • Kafka: Multi-broker cluster with expanded partition counts (16+ partitions/topic)                   │
+│ • Database: Primary-Replica CQRS (1x Primary Writer + Read Replicas for Hybrid Search queries)         │
+│ • Vector Store: Dedicated distributed vector database (Qdrant / Milvus) if dataset exceeds RAM limits │
+│ • Redis: Redis Cluster with hash slot sharding ({art:id}) across multiple nodes                        │
+│ • Orchestration: Container clustering with autoscaling workers based on consumer lag metrics          │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 5. Development Gap Register (Evidence-Backed)
+
+| Gap ID | Area | Observed Implementation State | Risk | Potential Improvement |
+| :--- | :--- | :--- | :--- | :--- |
+| **GAP-01** | Redis Mutex Release | `backend/app/redis/lock.py` checks `val == self.token` and calls `delete` in two separate round-trips. | Narrow race condition if lock expires between `get` and `delete`. | Use atomic Lua script for release (`if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`). |
+| **GAP-02** | Test Timing Assertion | `backend/tests/integration/test_e2e_pipeline.py` asserts `qa_response.total_took_ms > 0`. | Sub-millisecond execution on fast in-memory test runs rounds to `0.0`, causing test assertion failure. | Update assertion to `qa_response.total_took_ms >= 0`. |
+| **GAP-03** | AI Gateway Timeout Retries | `backend/app/llm/gateway.py` catches timeout and immediately falls back to next provider. | Transient network jitter triggers fallback without a retry attempt. | Add bounded exponential backoff retry (e.g. 1 retry with 500ms backoff) before escalating to fallback provider. |

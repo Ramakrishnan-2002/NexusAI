@@ -25,12 +25,12 @@ The `docs/mastery/` directory contains 9 focused canonical documents:
 | **[`README.md`](file:///d:/NexusAI/docs/mastery/README.md)** | Curriculum orientation, learning goals, study tracks, and out-of-scope boundaries. |
 | **[`ARCHITECTURE.md`](file:///d:/NexusAI/docs/mastery/ARCHITECTURE.md)** | Verified executable architecture, multi-container Docker topology, storage contracts, and Mermaid data flows. |
 | **[`BACKEND_MASTER_BOOK.md`](file:///d:/NexusAI/docs/mastery/BACKEND_MASTER_BOOK.md)** | Comprehensive engineering textbook covering backend fundamentals through distributed mechanics and RAG. |
-| **[`BACKEND_ENGINEERING_STORIES.md`](file:///d:/NexusAI/docs/mastery/BACKEND_ENGINEERING_STORIES.md)** | 48 concrete, dependency-ordered engineering stories with exact symbols, build exercises, and break/debug flows. |
+| **[`BACKEND_ENGINEERING_STORIES.md`](file:///d:/NexusAI/docs/mastery/BACKEND_ENGINEERING_STORIES.md)** | 40 concrete, dependency-ordered engineering stories with exact symbols, build exercises, and break/debug flows. |
 | **[`SYSTEM_DESIGN.md`](file:///d:/NexusAI/docs/mastery/SYSTEM_DESIGN.md)** | Requirements, capacity math, latency budgets, bottleneck analysis, and horizontal scaling evolutions. |
-| **[`INTERVIEW_PREP.md`](file:///d:/NexusAI/docs/mastery/INTERVIEW_PREP.md)** | 30s/2m/5m project pitches, 40+ senior backend Q&As, hostile interviewer defenses, and tradeoff matrices. |
+| **[`INTERVIEW_PREP.md`](file:///d:/NexusAI/docs/mastery/INTERVIEW_PREP.md)** | 30s/2m/5m project pitches, 40+ senior backend Q&As, hostile defenses, and tradeoff matrices. |
 | **[`ACTIVE_RECALL.md`](file:///d:/NexusAI/docs/mastery/ACTIVE_RECALL.md)** | Self-assessment drills, failure diagnosis walkthroughs, and code reconstruction exercises. |
 | **[`BACKEND_ROADMAP.md`](file:///d:/NexusAI/docs/mastery/BACKEND_ROADMAP.md)** | 5-pass chronological study path from Python/FastAPI basics to distributed scaling mastery. |
-| **[`BACKEND_DEPENDENCY_GRAPH.md`](file:///d:/NexusAI/docs/mastery/BACKEND_DEPENDENCY_GRAPH.md)** | Visual Mermaid Directed Acyclic Graph (DAG) mapping prerequisite relations across all 48 stories. |
+| **[`BACKEND_DEPENDENCY_GRAPH.md`](file:///d:/NexusAI/docs/mastery/BACKEND_DEPENDENCY_GRAPH.md)** | Visual Mermaid Directed Acyclic Graph (DAG) mapping prerequisite relations across all 40 stories. |
 
 ---
 
@@ -53,15 +53,24 @@ The `docs/mastery/` directory contains 9 focused canonical documents:
 
 Every story and concept is tagged with a priority level:
 
-* `[ESSENTIAL]` — Must master first to understand, build, trace, and explain NexusAI core workflows.
-* `[IMPORTANT]` — Critical backend knowledge for failure resilience, edge cases, and performance tuning.
-* `[ADVANCED]` — Deep distributed systems mechanics, mathematical derivations, and horizontal scaling design.
+* `[ESSENTIAL]` (26 stories) — Must master first to understand, build, trace, and explain NexusAI core workflows.
+* `[IMPORTANT]` (10 stories) — Critical backend knowledge for failure resilience, edge cases, and performance tuning.
+* `[ADVANCED]` (4 stories) — Deep distributed systems mechanics, mathematical derivations, and horizontal scaling design.
 
 ---
 
 ## 5. Architectural Status Taxonomy
 
-* `[CURRENT]` — Actually implemented in source code and verified by automated tests.
-* `[PARTIAL]` — Foundational code exists but lacks production-grade edge-case handling or distributed scale.
-* `[THEORY]` — Conceptual foundation required to understand the implementation.
-* `[FUTURE]` — Theoretical scaling path for 10x–100x traffic expansion.
+* `[CURRENT]` (36 stories) — Actually implemented in source code and verified by execution.
+* `[PARTIAL]` (0 stories) — Foundational code exists but lacks production-grade edge-case handling.
+* `[THEORY]` (0 stories) — Conceptual foundation required to understand the implementation.
+* `[FUTURE]` (4 stories) — Theoretical scaling path for horizontal distributed expansion (`[NOT IMPLEMENTED]`).
+
+---
+
+## 6. Development Status Taxonomy
+
+* `[COMPLETE]` (36 stories) — Implementation exists and is validated in repository.
+* `[IN PROGRESS]` (0 stories) — Actively being implemented.
+* `[NEEDS VERIFICATION]` (0 stories) — Awaiting test confirmation.
+* `[NOT IMPLEMENTED]` (4 stories) — Future architectural roadmap stories (Stories 37–40).

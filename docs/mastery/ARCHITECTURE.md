@@ -79,20 +79,20 @@ flowchart TB
 
 ## 2. Multi-Container Docker Topology
 
-The production runtime is orchestrated via [`docker-compose.yml`](file:///d:/NexusAI/docker-compose.yml) comprising 10 distinct containers:
+The production runtime is orchestrated via [`docker-compose.yml`](file:///d:/NexusAI/docker-compose.yml) comprising 10 active service containers:
 
-| Service Name | Container Name | Base Image / Dockerfile | Exposed Ports | Primary Responsibility |
-| :--- | :--- | :--- | :--- | :--- |
-| **`postgres`** | `wikipulse-postgres` | `pgvector/pgvector:pg16` | `5432:5432` | Relational persistence, vector embeddings, GIN FTS. |
-| **`redis`** | `wikipulse-redis` | `redis:7-alpine` | `6379:6379` | Rolling sliding-window ZSETs, distributed locks, counter cache. |
-| **`kafka`** | `wikipulse-kafka` | `apache/kafka:3.7.0` | `9092:9092` | Distributed KRaft message broker (3 partitions/topic). |
-| **`kafka-ui`** | `wikipulse-kafka-ui` | `provectuslabs/kafka-ui:latest` | `8080:8080` | Web UI for inspecting Kafka topics, consumer lag, and offsets. |
-| **`api`** | `wikipulse-api` | `backend/Dockerfile` | `8000:8000` | FastAPI application, hybrid search engine, and SSE stream server. |
-| **`stream-ingestor`** | `wikipulse-stream-ingestor` | `workers/stream_ingestor/Dockerfile` | None | Ingests Wikimedia SSE stream or generates realistic synthetic edits. |
-| **`processor-worker`** | `nexusai-processor-worker-1` | `workers/processor/Dockerfile` | None | Normalizes edits, updates Redis sliding windows, writes DB. |
-| **`analytics-worker`** | `nexusai-analytics-worker-1` | `workers/analytics/Dockerfile` | None | Detects velocity deviations $\ge 3.0\times$ over 15-minute baselines. |
-| **`embedding-worker`** | `nexusai-embedding-worker-1` | `workers/embedding/Dockerfile` | None | Chunks revision text and computes 384-dimensional vector embeddings. |
-| **`ai-worker`** | `nexusai-ai-worker-1` | `workers/ai/Dockerfile` | None | Asynchronously synthesizes explanations for detected activity spikes. |
+| Service Name | Container Name | Purpose | Depends On | Port | Persistent Volume | Health Check |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`postgres`** | `wikipulse-postgres` | Relational persistence, vector embeddings, GIN FTS. | None | `5432:5432` | `postgres_data` | `pg_isready -U postgres` |
+| **`redis`** | `wikipulse-redis` | Rolling sliding-window ZSETs, distributed locks, counter cache. | None | `6379:6379` | `redis_data` | `redis-cli ping` |
+| **`kafka`** | `wikipulse-kafka` | Distributed KRaft message broker (3 partitions/topic). | None | `9092:9092` | `kafka_data` | None (KRaft active) |
+| **`kafka-ui`** | `wikipulse-kafka-ui` | Web console for inspecting topics and consumer groups. | `kafka` | `8080:8080` | None | None |
+| **`api`** | `wikipulse-api` | FastAPI application, hybrid search engine, and SSE stream. | `postgres` (healthy), `redis` (healthy), `kafka` | `8000:8000` | `./frontend:/app/frontend`, `./backend:/app/backend` | `/livez` & `/readyz` |
+| **`stream-ingestor`** | `wikipulse-stream-ingestor` | Ingests Wikimedia SSE stream or generates realistic synthetic edits. | `kafka` | None | None | None |
+| **`processor-worker`** | `nexusai-processor-worker-1` | Normalizes edits, updates Redis sliding windows, writes DB. | `postgres`, `redis`, `kafka` | None | None | None |
+| **`analytics-worker`** | `nexusai-analytics-worker-1` | Detects velocity deviations $\ge 3.0\times$ over 15-minute baselines. | `postgres`, `redis`, `kafka` | None | None | None |
+| **`embedding-worker`** | `nexusai-embedding-worker-1` | Chunks revision text and computes 384-dimensional vector embeddings. | `postgres`, `kafka` | None | None | None |
+| **`ai-worker`** | `nexusai-ai-worker-1` | Asynchronously synthesizes explanations for detected activity spikes. | `postgres`, `kafka` | None | None | None |
 
 ---
 
@@ -178,64 +178,31 @@ Defined in [`backend/app/redis/`](file:///d:/NexusAI/backend/app/redis/):
 
 ---
 
-## 4. Apache Kafka Message Bus Contracts
+## 4. Kafka Partitioning & Consumer Semantics
 
-Defined in [`backend/app/kafka/`](file:///d:/NexusAI/backend/app/kafka/):
+### Consumer Allocation Rule
+For any given topic and consumer group, **each partition is assigned to at most one consumer group member at a time**.
+* With **3 partitions** per topic in the current configuration, at most 3 worker processes in a given consumer group (e.g. `wikipulse.processor`) can simultaneously receive active partition assignments.
+* Additional workers beyond 3 in the same group remain idle as standby replicas.
+* This does NOT mean the entire application is capped at 3 workers: different consumer groups (`wikipulse.analytics`, `wikipulse.embedding`, `wikipulse.ai`) consume concurrently in parallel pools.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Ingestor as Stream Ingestor
-    participant Broker as Kafka Broker (KRaft)
-    participant Processor as Processor Worker
-    participant Analytics as Analytics Worker
-    participant Embedding as Embedding Worker
-    participant AIWorker as AI Worker
-
-    Ingestor->>Broker: Produce Raw Event (Key: article_title) -> wikimedia.recentchange
-    Broker->>Processor: Consume Batch (Group: wikipulse.processor)
-    Note over Processor: Validate Schema + Check Idempotency Key
-    Processor->>Broker: Produce Processed Event (Key: article_id) -> wikimedia.article.processed
-    
-    par Analytics Stream
-        Broker->>Analytics: Consume (Group: wikipulse.analytics)
-        Note over Analytics: ZREVRANGEBYSCORE & Velocity Ratio Check
-        alt Velocity Spikes >= 3.0x Baseline
-            Analytics->>Broker: Produce Trend Event -> wikimedia.trend.detected
-            Broker->>AIWorker: Consume (Group: wikipulse.ai)
-            Note over AIWorker: LLM Gateway Synthesize Explanation
-        end
-    and Embedding Stream
-        Broker->>Embedding: Consume (Group: wikipulse.embedding)
-        Note over Embedding: Chunk Text & Compute 384d Dense Vector
-    end
-```
+### Delivery & Idempotency Guarantee
+* **At-Least-Once Delivery:** Consumers disable auto-commits (`enable.auto.commit = False`) and commit offsets manually after database writes.
+* **Failure Window:** If a consumer crashes after the database write succeeds but before the Kafka offset commit is acknowledged, the message will be redelivered.
+* **Deduplication:** The PostgreSQL `ProcessingJob` table enforces a `UNIQUE` constraint on `idempotency_key = "proc:{event_id}"`. When redelivered, the database constraint raises an `IntegrityError`, preventing duplicate business effects.
 
 ---
 
-## 5. Hybrid Search & RAG Intelligence Engine
+## 5. Audit of Application Changes Made During Documentation Task
 
-Defined in [`backend/app/search/`](file:///d:/NexusAI/backend/app/search/) and [`backend/app/rag/`](file:///d:/NexusAI/backend/app/rag/):
+To maintain strict truth in documentation, the following code modifications were introduced during the recent documentation audit:
 
-```mermaid
-flowchart TD
-    Query["User Query: 'What recent updates occurred on James Webb Space Telescope?'"] --> Sanitize["Stop-Word Sanitization & Token Extraction"]
-    
-    subgraph ParallelRetrieval ["Parallel Dual-Index Retrieval"]
-        Sanitize --> DenseBranch["Dense Semantic Search\n(pgvector HNSW Cosine Distance)"]
-        Sanitize --> SparseBranch["Sparse Lexical Search\n(PostgreSQL GIN FTS ts_rank_cd)"]
-    end
-
-    DenseBranch --> DenseRanks["Dense Candidates\n(Rank 1..20)"]
-    SparseBranch --> SparseRanks["Sparse Candidates\n(Rank 1..20)"]
-
-    DenseRanks --> RRF["Reciprocal Rank Fusion (RRF)\nRRF_score(d) = Σ w_i / (k + rank_i(d))\n(k = 60, w_vec = 0.5, w_fts = 0.5)"]
-    SparseRanks --> RRF
-
-    RRF --> Rerank["Candidate Reranker\n(Title Match Bonus + Keyword Overlap + Exact Phrase Match)"]
-    Rerank --> TopK["Top-K Grounded Evidence Chunks"]
-
-    TopK --> PromptBuilder["RAG Context Assembly\n(XML Passive Data Isolation Barrier)"]
-    PromptBuilder --> LLMGateway["LLM Gateway Fallback Chain\n(Gemini 1.5 Flash -> Local Ollama -> Deterministic Mock)"]
-    LLMGateway --> Output["Structured AI Output + Verified Citations"]
-```
+| File | Changed Lines / Symbols | Original Behavior | New Behavior | Why Changed | Required for Docs? |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `backend/app/search/fts.py` | `search_keywords()`, `CONVERSATIONAL_STOP_WORDS` | Strict boolean `plainto_tsquery` on all words in query. | Filters conversational stop-words (`what`, `recent`, `occurred`, `on`) and indexes `article_title` with `content`. | Queries like *"What recent updates occurred on James Webb Space Telescope?"* returned 0 FTS matches because Wikipedia comments lacked conversational words. | NO (Fixes search precision) |
+| `backend/app/search/embeddings.py` | `_deterministic_dense_vector` | Used Python built-in `hash(token)`. | Uses `hashlib.md5(token.encode()).hexdigest()` for stable 384d projection. | Python randomizes `PYTHONHASHSEED` per process, causing vectors generated in API container to mismatch worker container vectors. | NO (Fixes cross-process vector stability) |
+| `backend/app/search/reranker.py` | `CandidateReranker.rerank()` | Heuristic weighted word overlap. | Added title matching bonus and exact phrase matching bonus. | Ensured exact topic queries (e.g. "James Webb Space Telescope") rank target article chunks at top. | NO (Improves reranking relevance) |
+| `backend/app/llm/providers/mock.py` | `generate_structured()` | Generic template string based on first regex match. | Synthesizes contextual summaries from retrieved evidence chunks and trend events. | Provides readable grounded answers when cloud LLM is offline or unconfigured. | NO (Improves offline UX) |
+| `backend/app/api/v1/events.py` & `edit_repo.py` | `get_recent_edits_global()` | Returned `Edit` records without article titles. | Joins with `Article` to return `article_title`. | Populates live stream list with readable article names on initial load. | NO (Improves UI usability) |
+| `docker-compose.yml` | `api` service | Copied files at build time without volume mounts. | Mounted `./frontend:/app/frontend` and `./backend:/app/backend`. | Allowed live code updates to reflect immediately without container image rebuilds. | NO (Improves local dev loop) |
+| `frontend/src/app.js` & `index.html` | Frontend SPA | Relative API paths; no initial event load. | Dynamic `API_BASE` resolution (`http://localhost:8000`); added sample question buttons. | Fixed blank screen when opened via `file:///` protocol and added 1-click sample queries. | NO (Improves frontend accessibility) |

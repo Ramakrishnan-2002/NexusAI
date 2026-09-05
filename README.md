@@ -181,33 +181,13 @@ curl -X POST http://localhost:8000/api/v1/ai/ask \
 
 ---
 
-## 8. Documentation Directory
+## 8. Backend Engineering Documentation
 
-### Core Architecture
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Runtime components, boundaries, and storage architecture.
-- [`docs/SYSTEM_DESIGN.md`](docs/SYSTEM_DESIGN.md) — Complete system design, technology justification, and local vs production comparison.
-- [`docs/DATA_FLOW.md`](docs/DATA_FLOW.md) — Step-by-step trace of edit events from Wikimedia to SSE clients.
-- [`docs/API.md`](docs/API.md) — REST endpoints, request/response schemas, and SSE streaming guide.
-- [`docs/ADRs/`](docs/ADRs/) — Architecture Decision Records (ADR-001 through ADR-008).
-
-### Technical Deep Dives
-- [`docs/KAFKA_DEEP_DIVE.md`](docs/KAFKA_DEEP_DIVE.md) — confluent-kafka async bridge, partition strategies, and offset semantics.
-- [`docs/RAG_DEEP_DIVE.md`](docs/RAG_DEEP_DIVE.md) — Hybrid retrieval, RRF math, token budgeting, and citation grounding.
-
-### Reliability & Operations
-- [`docs/FAILURE_ENGINEERING.md`](docs/FAILURE_ENGINEERING.md) — Master Failure Matrix across broker, worker, and database outages.
-- [`docs/SECURITY.md`](docs/SECURITY.md) — Layered prompt defense, sanitization, and API security.
-- [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) — Prometheus metrics dictionary, `/livez` vs `/readyz` probes, and alerts.
-
-### Quality & Performance
-- [`docs/TESTING.md`](docs/TESTING.md) — Complete 32-test classification matrix and verification commands.
-- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — Empirical benchmarks, sample counts, percentiles, and methodology.
-- [`docs/PERFORMANCE_AND_SCALABILITY.md`](docs/PERFORMANCE_AND_SCALABILITY.md) — Capacity planning, worker sizing formulas, and bottleneck roadmap.
-
-### Interview & Study
-- [`docs/INTERVIEW_DEFENSE.md`](docs/INTERVIEW_DEFENSE.md) — Comprehensive interview defense Q&As and 15-minute presentation script.
-- [`docs/KNOW_YOUR_CODE.md`](docs/KNOW_YOUR_CODE.md) — Master file, class, and method implementation directory.
-- [`docs/NEXUSAI_PROJECT_TEXTBOOK.md`](docs/NEXUSAI_PROJECT_TEXTBOOK.md) — Complete 28-Part engineering master textbook.
+- [**Backend Engineering Stories**](docs/mastery/BACKEND_ENGINEERING_STORIES.md) — 40 concrete, dependency-ordered engineering stories across 12 modules.
+- [**Backend Architecture**](docs/mastery/ARCHITECTURE.md) — Verified executable architecture, multi-container Docker topology, storage ER diagrams, and Mermaid sequence flows.
+- [**System Design**](docs/mastery/SYSTEM_DESIGN.md) — Quantitative capacity planning models, failure modes, and horizontal scaling roadmaps.
+- [**Backend Roadmap**](docs/mastery/BACKEND_ROADMAP.md) — 5-pass chronological study path and complete Mermaid Dependency Graph (DAG).
+- [**Architecture Decision Records**](docs/ADRs/README.md) — Accepted ADRs for Kafka, confluent-kafka, idempotency, hybrid RAG, RRF, and LLM gateways.
 
 ---
 
